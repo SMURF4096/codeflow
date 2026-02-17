@@ -1441,16 +1441,17 @@ const Parser={
         // Python-specific import and call detection
         if(isPython){
             var wordSet=new Set(content.match(/\b[a-zA-Z_]\w*\b/g)||[]);
-            // Detect Python imports: from module import func / import module
-            var importLines=content.match(/^(?:from\s+\S+\s+import\s+.+|import\s+.+)$/gm)||[];
-            importLines.forEach(function(imp){
-                fnNames.forEach(function(fn){
-                    if(!wordSet.has(fn))return;
-                    // from X import fn or from X import (fn, ...)
-                    if(imp.match(new RegExp('import\\s+.*\\b'+fn+'\\b'))){
-                        calls[fn]++;
-                    }
-                });
+            // Detect Python imports including multi-line: from module import (\n  func1,\n  func2\n)
+            var importText='';
+            var multiImports=content.match(/from\s+\S+\s+import\s*\([\s\S]*?\)/g)||[];
+            multiImports.forEach(function(imp){importText+=imp+'\n';});
+            var singleImports=content.match(/^(?:from\s+\S+\s+import\s+[^(\n].+|import\s+.+)$/gm)||[];
+            singleImports.forEach(function(imp){importText+=imp+'\n';});
+            fnNames.forEach(function(fn){
+                if(!wordSet.has(fn))return;
+                if(importText.match(new RegExp('\\b'+fn+'\\b'))){
+                    calls[fn]++;
+                }
             });
             // Detect function calls and class instantiations
             fnNames.forEach(function(fn){
@@ -1471,10 +1472,14 @@ const Parser={
                 var methodPattern=new RegExp('\\w+\\.'+fn+'\\s*\\(','g');
                 var methodMatch=content.match(methodPattern);
                 if(methodMatch)callCount+=methodMatch.length;
-                // References as arguments or in collections
-                var refPattern=new RegExp('[,\\[\\(=:]\\s*'+fn+'\\s*[,\\]\\)\\n}]','g');
+                // References as arguments, collections, dict/set values, and callback assignments
+                var refPattern=new RegExp('[,\\[\\(=:\\{]\\s*'+fn+'\\s*[,\\]\\)\\n\\r}]','g');
                 var refMatch=content.match(refPattern);
                 var refCount=refMatch?refMatch.length:0;
+                // Also catch fn as standalone value at end of expression: return fn / yield fn
+                var retPattern=new RegExp('(?:return|yield)\\s+'+fn+'\\s*$','gm');
+                var retMatch=content.match(retPattern);
+                if(retMatch)refCount+=retMatch.length;
                 calls[fn]=Math.max(0,callCount)+refCount;
             });
             return calls;
@@ -1600,6 +1605,20 @@ const Parser={
             var vbaCallPattern=new RegExp('(?:Call\\s+|Application\\.Run\\s*["\'])'+fn+'(?:["\'])?\\s*\\(','gi');
             var vbaMatch=content.match(vbaCallPattern);
             if(vbaMatch)callCount+=vbaMatch.length;
+
+            // JSX element and expression detection for React/Vue/Svelte files
+            // Acorn can't parse JSX, so these patterns are critical for .tsx/.jsx files
+            if(isJS){
+                // JSX elements: <ComponentName>, <ComponentName />, </ComponentName>
+                var jsxTagPattern=new RegExp('<\\/?\\s*'+fn+'[\\s>\\/{]','g');
+                var jsxTagMatch=content.match(jsxTagPattern);
+                if(jsxTagMatch)refCount+=jsxTagMatch.length;
+                // JSX attribute expressions: onClick={fn}, render={fn}, value={fn()}
+                // Also catches object shorthand {fn} and template expressions {fn}
+                var jsxExprPattern=new RegExp('[{=]\\s*'+fn+'\\s*[}(,;\\s]','g');
+                var jsxExprMatch=content.match(jsxExprPattern);
+                if(jsxExprMatch)refCount+=jsxExprMatch.length;
+            }
 
             calls[fn]=Math.max(0,callCount)+refCount;
         });
@@ -2347,6 +2366,14 @@ function App(){
                     if((baseName==='upgrade'||baseName==='downgrade')&&stats.file&&(stats.file.includes('migration')||stats.file.includes('alembic')||stats.file.includes('versions')))return false;
                     // Python-aware: skip common framework entry points and hooks
                     if(['main','create_app','make_app','get_app','setup','configure','register','on_startup','on_shutdown','lifespan'].indexOf(baseName)>=0)return false;
+                    // React/JSX: skip exported PascalCase components in .jsx/.tsx files
+                    // These are React components imported and used as <Component /> in other files
+                    if(stats.isExported&&stats.file&&/\.[jt]sx$/.test(stats.file)&&/^[A-Z]/.test(baseName))return false;
+                    // React/JSX: skip functions in .jsx/.tsx files that follow handler/callback conventions
+                    // These are typically used in JSX attributes: onClick={handleSubmit}
+                    if(stats.file&&/\.[jt]sx$/.test(stats.file)&&/^(?:handle|on)[A-Z]/.test(baseName))return false;
+                    // Skip functions in test/spec files (broader pattern)
+                    if(stats.file&&(/\.(?:spec|test)\.[jt]sx?$/.test(stats.file)||stats.file.includes('__tests__')))return false;
                     // This is a top-level function with zero calls and no framework registration
                     return true;
                 });
@@ -2601,6 +2628,14 @@ function App(){
                 if((baseName==='upgrade'||baseName==='downgrade')&&stats.file&&(stats.file.includes('migration')||stats.file.includes('alembic')||stats.file.includes('versions')))return false;
                 // Python-aware: skip common framework entry points
                 if(['main','create_app','make_app','get_app','setup','configure','register','on_startup','on_shutdown','lifespan'].indexOf(baseName)>=0)return false;
+                // React/JSX: skip exported PascalCase components in .jsx/.tsx files
+                // These are React components imported and used as <Component /> in other files
+                if(stats.isExported&&stats.file&&/\.[jt]sx$/.test(stats.file)&&/^[A-Z]/.test(baseName))return false;
+                // React/JSX: skip functions in .jsx/.tsx files that follow handler/callback conventions
+                // These are typically used in JSX attributes: onClick={handleSubmit}
+                if(stats.file&&/\.[jt]sx$/.test(stats.file)&&/^(?:handle|on)[A-Z]/.test(baseName))return false;
+                // Skip functions in test/spec files (broader pattern)
+                if(stats.file&&(/\.(?:spec|test)\.[jt]sx?$/.test(stats.file)||stats.file.includes('__tests__')))return false;
                 return true;
             });
             if(deadFns.length)issues.push({type:'warning',title:deadFns.length+' Unused Functions',desc:'Functions not called from other files',items:deadFns.map(function(x){return{name:x[0],file:x[1].file,line:x[1].line,code:x[1].code};})});
