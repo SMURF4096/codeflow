@@ -77,15 +77,27 @@ const dataOnlyHtml = `
 <!doctype html>
 <html>
   <head>
-    <script type="application/ld+json">{"name":"example"}</script>
+    <script type=application/ld+json>{"name":"example"}</script>
     <script type="text/plain">function nope(){}</script>
   </head>
   <body></body>
 </html>
 `;
 
-assert.equal(Parser.hasEmbeddedCode(dataOnlyHtml, 'data.html'), false, 'Non-executable script tags should be ignored');
+assert.equal(Parser.hasEmbeddedCode(dataOnlyHtml, 'data.html'), false, 'Non-executable script tags should be ignored even with unquoted type attributes');
 assert.equal(Parser.extract(dataOnlyHtml, 'data.html').length, 0, 'Non-executable script tags should not contribute functions');
+
+const customAttrHtml = `
+<!doctype html>
+<html>
+  <body data-onclick="boot()" aria-description="onclick=still-not-a-handler">
+    <div data-onload="renderApp()"></div>
+  </body>
+</html>
+`;
+
+assert.equal(Parser.hasEmbeddedCode(customAttrHtml, 'attrs.html'), false, 'Custom attributes containing on* names should not be treated as handlers');
+assert.equal(Parser.extract(customAttrHtml, 'attrs.html').length, 0, 'Custom attributes should not create extracted functions or executable blocks');
 
 const vueSfc = `
 <template><div /></template>

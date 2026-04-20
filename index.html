@@ -586,9 +586,28 @@ const Parser={
     isHTML:function(n){return ['.html','.htm','.xhtml'].some(function(e){return n.toLowerCase().endsWith(e);});},
     isCSS:function(n){return ['.css','.scss','.sass','.less'].some(function(e){return n.toLowerCase().endsWith(e);});},
     isJSON:function(n){return ['.json'].some(function(e){return n.toLowerCase().endsWith(e);});},
+    parseHTMLAttributes:function(attrs){
+        if(!attrs)return[];
+        var parsed=[];
+        var attrRegex=/([^\s"'<>\/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
+        var match;
+        while((match=attrRegex.exec(attrs))){
+            var value=match[2]!==undefined?match[2]:(match[3]!==undefined?match[3]:match[4]);
+            parsed.push({
+                name:(match[1]||'').toLowerCase(),
+                value:value===undefined?'':value,
+                valueStart:value===undefined?-1:match.index+match[0].indexOf(value)
+            });
+        }
+        return parsed;
+    },
     getScriptTagAttribute:function(attrs,name){
-        var match=attrs.match(new RegExp('\\b'+name+'\\s*=\\s*(["\'])(.*?)\\1','i'));
-        return match?match[2]:'';
+        var parsed=Parser.parseHTMLAttributes(attrs);
+        var lowered=name.toLowerCase();
+        for(var i=0;i<parsed.length;i++){
+            if(parsed[i].name===lowered)return parsed[i].value;
+        }
+        return'';
     },
     getScriptBlockInfo:function(attrs){
         var type=(Parser.getScriptTagAttribute(attrs,'type')||'').split(';')[0].trim().toLowerCase();
@@ -628,10 +647,12 @@ const Parser={
         var blocks=[];
         var scriptRegex=/<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
         var match;
+        var scriptRanges=[];
         while((match=scriptRegex.exec(content))){
             var attrs=match[1]||'';
             var info=Parser.getScriptBlockInfo(attrs);
             var scriptContent=match[2]||'';
+            scriptRanges.push({start:match.index,end:match.index+match[0].length});
             if(!info.executable||!scriptContent.trim())continue;
             var openTagEnd=match[0].indexOf('>');
             if(openTagEnd<0)continue;
@@ -646,18 +667,33 @@ const Parser={
         }
 
         if(options&&options.includeHandlers&&Parser.isHTML(filename)){
-            var handlerRegex=/\bon[a-z][\w:-]*\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
-            while((match=handlerRegex.exec(content))){
-                var handlerCode=match[1]!==undefined?match[1]:(match[2]!==undefined?match[2]:match[3]);
-                if(!handlerCode||!handlerCode.trim())continue;
-                var valueStart=match.index+match[0].lastIndexOf(handlerCode);
-                blocks.push({
-                    content:handlerCode,
-                    offset:content.slice(0,valueStart).split('\n').length-1,
-                    isTS:false,
-                    sourceType:'script',
-                    kind:'handler'
-                });
+            var tagRegex=/<([a-z][\w:-]*)([^<>]*?)>/gi;
+            while((match=tagRegex.exec(content))){
+                var tagStart=match.index;
+                var insideScript=false;
+                for(var sri=0;sri<scriptRanges.length;sri++){
+                    if(tagStart>=scriptRanges[sri].start&&tagStart<scriptRanges[sri].end){
+                        insideScript=true;
+                        break;
+                    }
+                }
+                if(insideScript)continue;
+                var attrs=match[2]||'';
+                var attrsStart=match[0].indexOf(attrs);
+                var parsedAttrs=Parser.parseHTMLAttributes(attrs);
+                for(var ai=0;ai<parsedAttrs.length;ai++){
+                    var attr=parsedAttrs[ai];
+                    if(!/^on[a-z][\w:-]*$/i.test(attr.name)||attr.valueStart<0)continue;
+                    if(!attr.value||!attr.value.trim())continue;
+                    var valueStart=tagStart+attrsStart+attr.valueStart;
+                    blocks.push({
+                        content:attr.value,
+                        offset:content.slice(0,valueStart).split('\n').length-1,
+                        isTS:false,
+                        sourceType:'script',
+                        kind:'handler'
+                    });
+                }
             }
         }
 
