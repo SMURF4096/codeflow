@@ -791,16 +791,23 @@ const Parser={
         lua:{grammar:'lua',exts:['.lua'],coverage:'available'},
         bash:{grammar:'bash',exts:['.sh','.bash','.zsh','.fish'],coverage:'available'}
     },
+    treeSitterFetchTimeoutMs:8000,
+    _withTimeout:function(promise,ms){
+        return Promise.race([
+            promise,
+            new Promise(function(_,reject){setTimeout(function(){reject(new Error('tree-sitter fetch timed out'));},ms);})
+        ]);
+    },
     initTreeSitter:async function(){
         if(this._tsRuntimePromise)return this._tsRuntimePromise;
         this._tsRuntimePromise=(async()=>{
             if(typeof TreeSitter==='undefined')return null;
             try{
-                await TreeSitter.init({
+                await Parser._withTimeout(TreeSitter.init({
                     locateFile:function(scriptName){
                         return 'https://cdn.jsdelivr.net/npm/web-tree-sitter@0.20.8/'+scriptName;
                     }
-                });
+                }),Parser.treeSitterFetchTimeoutMs);
                 return TreeSitter;
             }catch(e){
                 return null;
@@ -826,7 +833,7 @@ const Parser={
             var runtime=await Parser.initTreeSitter();
             if(!runtime)return null;
             try{
-                var lang=await runtime.Language.load(Parser.treeSitterWasmBase+'tree-sitter-'+config.grammar+'.wasm');
+                var lang=await Parser._withTimeout(runtime.Language.load(Parser.treeSitterWasmBase+'tree-sitter-'+config.grammar+'.wasm'),Parser.treeSitterFetchTimeoutMs);
                 var parser=new runtime();
                 parser.setLanguage(lang);
                 Parser._tsLanguages[config.grammar]=lang;
