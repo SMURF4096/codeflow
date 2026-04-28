@@ -45,6 +45,8 @@ async function run() {
   const inputs = loadInputs();
   const repoRoot = process.env.GITHUB_WORKSPACE || process.cwd();
   log('analyzing ' + repoRoot);
+  log('DBG env INPUT_SHOW_GRADE=' + JSON.stringify(process.env.INPUT_SHOW_GRADE) + ' INPUT_SHOW_SCORE=' + JSON.stringify(process.env.INPUT_SHOW_SCORE) + ' INPUT_THEME=' + JSON.stringify(process.env.INPUT_THEME));
+  log('DBG inputs.showGrade=' + JSON.stringify(inputs.showGrade) + ' inputs.showScore=' + JSON.stringify(inputs.showScore) + ' inputs.theme=' + JSON.stringify(inputs.theme));
 
   const actionDir = __dirname;
   const indexHtmlPath = locateIndexHtml(actionDir, repoRoot);
