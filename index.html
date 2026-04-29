@@ -1196,6 +1196,8 @@ const Parser={
         // Group functions by name (excluding common names)
         var fnByName=Object.create(null);
         allFns.forEach(function(fn){
+            // Skip non-string names (e.g. numeric object-literal keys from the JS AST walker)
+            if(typeof fn.name!=='string')return;
             // Skip common/idiomatic names
             if(commonNames.has(fn.name))return;
             // Skip very short names (likely false positives)
@@ -2236,7 +2238,7 @@ const Parser={
                     }
 
                     if(node.type==='MethodDefinition'&&node.key){
-                        var methodName=node.key.name||node.key.value;
+                        var methodName=node.key.name||(node.key.value!=null?String(node.key.value):null);
                         if(methodName&&methodName!=='constructor'){
                             var methodLine=(node.loc?node.loc.start.line:1)+offset;
                             var methodEndLine=(node.loc?node.loc.end.line:methodLine)+offset;
@@ -2256,7 +2258,7 @@ const Parser={
                     }
 
                     if(node.type==='Property'&&node.method&&node.key){
-                        var shorthandName=node.key.name||node.key.value;
+                        var shorthandName=node.key.name||(node.key.value!=null?String(node.key.value):null);
                         if(shorthandName){
                             var shorthandLine=(node.loc?node.loc.start.line:1)+offset;
                             var shorthandEndLine=(node.loc?node.loc.end.line:shorthandLine)+offset;
@@ -2275,7 +2277,7 @@ const Parser={
                     if(node.type==='Property'&&!node.method&&node.value&&node.key){
                         var val=node.value;
                         if(val.type==='FunctionExpression'||val.type==='ArrowFunctionExpression'){
-                            var propName=node.key.name||node.key.value;
+                            var propName=node.key.name||(node.key.value!=null?String(node.key.value):null);
                             if(propName){
                                 var propLine=(node.loc?node.loc.start.line:1)+offset;
                                 var propEndLine=(node.loc?node.loc.end.line:propLine)+offset;
@@ -2438,6 +2440,7 @@ const Parser={
         var exact=new Set();
         var byBase=Object.create(null);
         (fnNames||[]).forEach(function(fn){
+            if(typeof fn!=='string'||!fn)return;
             exact.add(fn);
             if(fn.indexOf('.')>=0){
                 var parts=fn.split('.');
