@@ -2204,7 +2204,9 @@ const Parser={
     extractOtherLanguages:function(content,filename,addFn,extractCode){
         var lines=content.split('\n');
         var isPascal=Parser.isPascal(filename);
-        var pascalHasImplementation=isPascal&&/^\s*implementation\b/im.test(content);
+        var pascalContent=isPascal?Parser.stripPascalNonCode(content):'';
+        var pascalLines=isPascal?pascalContent.split('\n'):null;
+        var pascalHasImplementation=isPascal&&/^\s*implementation\b/im.test(pascalContent);
         var inPascalImplementation=!pascalHasImplementation;
 
         lines.forEach(function(line,idx){
@@ -2212,15 +2214,16 @@ const Parser={
             var m;
 
             if(isPascal){
-                if(/^\s*implementation\b/i.test(line)){
+                var pascalLine=pascalLines[idx];
+                if(/^\s*implementation\b/i.test(pascalLine)){
                     inPascalImplementation=true;
                     return;
                 }
                 if(!inPascalImplementation)return;
-                if(!/^\s*(?:(?:class|static)\s+)?(?:procedure|function|constructor|destructor|operator)\b/i.test(line))return;
-                var signature=line;
+                if(!/^\s*(?:(?:class|static)\s+)?(?:procedure|function|constructor|destructor|operator)\b/i.test(pascalLine))return;
+                var signature=pascalLine;
                 for(var si=idx+1;si<lines.length&&si<=idx+8&&!/;/.test(signature);si++){
-                    signature+=' '+lines[si].trim();
+                    signature+=' '+pascalLines[si].trim();
                 }
                 m=signature.match(/^\s*(?:(?:class|static)\s+)?(procedure|function|constructor|destructor|operator)\s+([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)/i);
                 if(m&&!/\b(?:forward|external)\b/i.test(signature)){
@@ -2600,6 +2603,7 @@ const Parser={
 
     buildFunctionDefinitionIndex:function(fnDefs){
         var byName=Object.create(null);
+        var byPascalName=Object.create(null);
         var byKey=Object.create(null);
         (fnDefs||[]).forEach(function(fn){
             if(!fn||typeof fn.name!=='string'||!fn.name)return;
@@ -2609,8 +2613,13 @@ const Parser={
             byKey[key]=fn;
             if(!byName[fn.name])byName[fn.name]=[];
             byName[fn.name].push(fn);
+            if(Parser.isPascal(fn.file)){
+                var pascalName=fn.name.toLowerCase();
+                if(!byPascalName[pascalName])byPascalName[pascalName]=[];
+                byPascalName[pascalName].push(fn);
+            }
         });
-        return{byName:byName,byKey:byKey};
+        return{byName:byName,byPascalName:byPascalName,byKey:byKey};
     },
 
     resolveCallGraphImportPath:function(importPath,fromFile,files){
@@ -2753,7 +2762,9 @@ const Parser={
                 match[1].split(',').forEach(function(part){
                     var unitMatch=part.trim().match(/^([A-Za-z_][A-Za-z0-9_.]*)/);
                     if(!unitMatch)return;
-                    addTarget(Parser.resolveCallGraphImportPath(unitMatch[1],fromFile,files));
+                    var unitResolved=Parser.resolveCallGraphImportPath(unitMatch[1],fromFile,files);
+                    addTarget(unitResolved);
+                    addLocal(unitMatch[1].toLowerCase(),unitResolved);
                 });
             }
         }
@@ -2765,11 +2776,21 @@ const Parser={
         return{locals:localFiles,targets:targets};
     },
 
-    candidateFunctionNames:function(content,fnNames,fnIndex){
+    candidateFunctionNames:function(content,fnNames,fnIndex,options){
         if(!content||!fnNames||!fnNames.length)return[];
         if(fnNames.length<=Parser._callCandidateThreshold)return fnNames;
-        var wordSet=new Set(String(content).match(/\b[a-zA-Z_$][\w$]*\b/g)||[]);
+        var caseInsensitive=!!(options&&options.caseInsensitive);
+        var words=String(content).match(/\b[a-zA-Z_$][\w$]*\b/g)||[];
+        var wordSet=new Set(caseInsensitive?words.map(function(word){return word.toLowerCase();}):words);
         if(!wordSet.size)return[];
+        if(caseInsensitive){
+            return fnNames.filter(function(fn){
+                if(typeof fn!=='string')return false;
+                var lower=fn.toLowerCase();
+                var base=lower.indexOf('.')>=0?lower.split('.').pop():lower;
+                return wordSet.has(lower)||wordSet.has(base);
+            });
+        }
         var index=fnIndex||Parser.buildFunctionNameIndex(fnNames);
         var out=[];
         var seen=new Set();
@@ -2794,19 +2815,52 @@ const Parser={
     countCandidateCalls:function(content,fnNames,options){
         var calls=Object.create(null);
         var refs=Object.create(null);
-        var candidateSet=new Set(fnNames||[]);
         var source=String(content||'');
         var opts=options||{};
-        fnNames.forEach(function(fn){calls[fn]=0;refs[fn]=0;});
+        var canonicalNamesByToken=Object.create(null);
+        (fnNames||[]).forEach(function(fn){
+            var token=opts.isPascal?fn.toLowerCase():fn;
+            if(opts.isPascal){
+                calls[token]=0;
+                refs[token]=0;
+                canonicalNamesByToken[token]=[token];
+            }else{
+                calls[fn]=0;
+                refs[fn]=0;
+                canonicalNamesByToken[token]=[fn];
+            }
+        });
+        var candidateSet=new Set(Object.keys(canonicalNamesByToken));
         if(!source||!candidateSet.size)return calls;
+
+        function pascalQualifierBefore(index){
+            var cursor=index-1;
+            while(cursor>=0&&/\s/.test(source[cursor]))cursor--;
+            if(source[cursor]!=='.')return'';
+            cursor--;
+            var parts=[];
+            while(cursor>=0){
+                while(cursor>=0&&/\s/.test(source[cursor]))cursor--;
+                var end=cursor+1;
+                while(cursor>=0&&/[A-Za-z0-9_]/.test(source[cursor]))cursor--;
+                var part=source.slice(cursor+1,end);
+                if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(part))break;
+                parts.unshift(part);
+                while(cursor>=0&&/\s/.test(source[cursor]))cursor--;
+                if(source[cursor]!=='.')break;
+                cursor--;
+            }
+            return parts.length?parts.join('.').toLowerCase():'@member';
+        }
 
         var tokenRe=/\b[a-zA-Z_$][\w$]*\b/g;
         var match;
         while((match=tokenRe.exec(source))!==null){
-            var name=match[0];
-            if(!candidateSet.has(name))continue;
+            var tokenName=opts.isPascal?match[0].toLowerCase():match[0];
+            if(!candidateSet.has(tokenName))continue;
+            var matchedNames=canonicalNamesByToken[tokenName];
             var start=match.index;
-            var end=start+name.length;
+            var end=start+match[0].length;
             var prev=start-1;
             while(prev>=0&&/\s/.test(source[prev]))prev--;
             var next=end;
@@ -2815,19 +2869,31 @@ const Parser={
             var prevChar=prev>=0?source[prev]:'';
             var lineStart=source.lastIndexOf('\n',start-1)+1;
             var prefix=source.slice(lineStart,start);
+            var pascalQualifier=opts.isPascal?pascalQualifierBefore(start):'';
+            if(pascalQualifier){
+                var qualifiedName=pascalQualifier+'.'+tokenName;
+                if(calls[qualifiedName]===undefined){
+                    calls[qualifiedName]=0;
+                    refs[qualifiedName]=0;
+                }
+                matchedNames=[qualifiedName];
+            }
             var isDefinition=false;
             if(/\b(function|class|def)\s*$/.test(prefix))isDefinition=true;
             if(opts.isPython&&/\b(async\s+def|def|class)\s*$/.test(prefix))isDefinition=true;
             if(opts.isVBA&&/\b(Sub|Function)\s+$/i.test(prefix))isDefinition=true;
-            if(opts.isPascal&&/\b(procedure|function|constructor|destructor|operator)\s+$/i.test(prefix))isDefinition=true;
+            if(opts.isPascal){
+                var declarationContext=source.slice(Math.max(0,start-512),start);
+                if(/\b(?:procedure|function|constructor|destructor|operator)\s+(?:[A-Za-z_][A-Za-z0-9_]*\s*\.\s*)*$/i.test(declarationContext))isDefinition=true;
+            }
             if(nextChar==='('&&!isDefinition){
-                calls[name]++;
-            }else if(opts.isPascal&&nextChar===';'&&!isDefinition&&/^(?:[A-Za-z_]\w*\.)*\s*$/.test(prefix.trim())){
-                calls[name]++;
+                matchedNames.forEach(function(name){calls[name]++;});
+            }else if(opts.isPascal&&nextChar===';'&&!isDefinition&&(pascalQualifier||/^(?:[A-Za-z_]\w*\.)*\s*$/.test(prefix.trim()))){
+                matchedNames.forEach(function(name){calls[name]++;});
             }else if(!isDefinition&&'[,[:(={'.indexOf(prevChar)>=0&&' ,])};\n\r'.indexOf(nextChar)>=0){
-                refs[name]++;
+                matchedNames.forEach(function(name){refs[name]++;});
             }else if(opts.isPython&&prevChar==='@'&&!isDefinition){
-                refs[name]++;
+                matchedNames.forEach(function(name){refs[name]++;});
             }
         }
 
@@ -2857,7 +2923,7 @@ const Parser={
             }
         }
 
-        fnNames.forEach(function(fn){
+        Object.keys(calls).forEach(function(fn){
             calls[fn]=Math.max(0,calls[fn]||0)+(refs[fn]||0);
         });
         return calls;
@@ -2865,7 +2931,8 @@ const Parser={
 
     // AST-based call detection - finds actual function calls and references
     findCalls:function(content,fnNames,definingFile,fnDefs,fnIndex){
-        fnNames=Parser.candidateFunctionNames(content,fnNames,fnIndex);
+        var pascalFile=Parser.isPascal(definingFile);
+        fnNames=Parser.candidateFunctionNames(content,fnNames,fnIndex,{caseInsensitive:pascalFile});
         var calls={};
         var refs={};  // Functions used as callbacks/references without ()
         if(!fnNames.length)return calls;
@@ -2904,7 +2971,7 @@ const Parser={
         var isPython=['py','pyw','pyi'].indexOf(ext)>=0;
         var isJS=['js','jsx','ts','tsx','mjs','cjs','vue','svelte'].indexOf(ext)>=0;
         var isVBA=['vba','bas','cls','xlsm','xlam'].indexOf(ext)>=0;
-        var isPascal=['pas','pp','dpr','dpk','lpr','inc'].indexOf(ext)>=0;
+        var isPascal=pascalFile;
 
         // Python: use tree-sitter real parser (WASM) for accurate AST-based detection
         if(isPython){
@@ -4835,14 +4902,31 @@ async function buildAnalysisData(options){
     }
 
     function resolveCallDefinitions(fnName,file){
-        var defs=fnDefIndex.byName[fnName]||[];
+        var isPascalCall=Parser.isPascal(file.path);
+        var pascalParts=isPascalCall?fnName.toLowerCase().split('.'):[];
+        var pascalBaseName=isPascalCall?pascalParts.pop():fnName;
+        var pascalQualifier=isPascalCall?pascalParts.join('.'):'';
+        var defs=isPascalCall
+            ?fnDefIndex.byPascalName[pascalBaseName]||[]
+            :fnDefIndex.byName[fnName]||[];
         if(!defs.length)return[];
+        var imports=fileImportInfo[file.path]||{locals:Object.create(null),targets:new Set()};
+        var hasUnresolvedPascalQualifier=false;
+        if(pascalQualifier){
+            var qualifiedImports=(imports.locals&&imports.locals[pascalQualifier])||[];
+            if(qualifiedImports.length){
+                var qualifiedMatches=defs.filter(function(def){return qualifiedImports.indexOf(def.file)>=0;});
+                var qualifiedDef=firstDefinitionFromOneFile(qualifiedMatches);
+                return qualifiedDef?[qualifiedDef]:[];
+            }
+            hasUnresolvedPascalQualifier=true;
+        }
         var sameFile=defs.filter(function(def){return def.file===file.path;});
         var sameFileDef=firstDefinitionFromOneFile(sameFile);
         if(sameFileDef)return[sameFileDef];
+        if(hasUnresolvedPascalQualifier)return[];
         if(defs.length===1)return[defs[0]];
 
-        var imports=fileImportInfo[file.path]||{locals:Object.create(null),targets:new Set()};
         var directImports=(imports.locals&&imports.locals[fnName])||[];
         var matches=[];
         if(directImports.length){
@@ -4852,6 +4936,15 @@ async function buildAnalysisData(options){
         }
 
         if(imports.targets&&typeof imports.targets.has==='function'){
+            if(isPascalCall){
+                var orderedTargets=Array.from(imports.targets);
+                for(var targetIndex=orderedTargets.length-1;targetIndex>=0;targetIndex--){
+                    matches=defs.filter(function(def){return def.file===orderedTargets[targetIndex];});
+                    var precedenceDef=firstDefinitionFromOneFile(matches);
+                    if(precedenceDef)return[precedenceDef];
+                }
+                return[];
+            }
             matches=defs.filter(function(def){return imports.targets.has(def.file);});
             var importedDef=firstDefinitionFromOneFile(matches);
             if(importedDef)return[importedDef];
@@ -4880,7 +4973,7 @@ async function buildAnalysisData(options){
                     if(def.file===file.path){
                         stat.internal+=cnt;
                     }else{
-                        conns.push({source:def.file,target:file.path,fn:fn,count:cnt,functionKey:def.key});
+                        conns.push({source:def.file,target:file.path,fn:def.name,count:cnt,functionKey:def.key});
                         var ex=stat.callers.get(file.path);
                         if(ex)ex.count+=cnt;
                         else stat.callers.set(file.path,{file:file.path,name:file.name,count:cnt});
