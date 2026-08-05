@@ -630,8 +630,8 @@ body{height:100dvh;min-height:100dvh}
 const{useState,useEffect,useRef,useMemo,useCallback}=React;
 const COLORS=['#4d9fff','#a78bfa','#22d3ee','#00ff9d','#ff9f43','#ec4899','#ff5f5f','#84cc16'];
 const LAYER_COLORS={ui:'#4d9fff',components:'#22d3ee',services:'#a78bfa',utils:'#00ff9d',data:'#ff9f43',config:'#ec4899',test:'#f59e0b',modules:'#a78bfa',forms:'#22d3ee',classes:'#ff9f43',note:'#c084fc'};
-const IGNORE=new Set(['node_modules','.git','vendor','dist','build','__pycache__','.next','coverage','.venv','venv','env','.env','.tox','.mypy_cache','.pytest_cache','.ruff_cache','__pypackages__','.eggs','__macosx']);
-const DEFAULT_EXCLUDE_CHIPS=['.git','node_modules','dist','build','coverage','__pycache__','.next','.venv','venv','.tox'];
+const IGNORE=new Set(['node_modules','.git','vendor','dist','build','out','coverage','.next','.nuxt','.cache','.parcel-cache','.turbo','.vercel','.local','.artifacts','.playwright-cli','playwright-report','test-results','.claude','.codex','.idea','.vscode','.pnpm-store','.yarn','tmp','temp','target','bin','obj','__pycache__','.venv','venv','env','.env','.tox','.mypy_cache','.pytest_cache','.ruff_cache','__pypackages__','.eggs','__macosx']);
+const DEFAULT_EXCLUDE_CHIPS=['.git','node_modules','dist','build','coverage','.next','.turbo','.local','.venv','venv','.tox'];
 const ANALYSIS_LIMITS={repoSoft:300,repoMax:750,localSoft:500};
 
 // ---------------------------------------------------------------------------
@@ -725,6 +725,23 @@ function shouldExcludeFile(path,name,compiledPatterns){
     return !Parser.isIncluded(name)||matchesExcludePattern(compiledPatterns,path,name);
 }
 
+function makeOversizedAnalysisFile(file,size,isCode){
+    return{
+        path:file.path,
+        name:file.name,
+        folder:file.folder,
+        content:'',
+        functions:[],
+        lines:0,
+        layer:Parser.detectLayer(file.path),
+        churn:0,
+        isCode:isCode,
+        size:size||0,
+        analysisSkipped:'oversized',
+        parserProvenance:'skipped:size-limit'
+    };
+}
+
 function getArchiveRootPrefix(paths){
     var splitPaths=(paths||[]).map(function(path){return normalizeExcludePath(path).split('/').filter(Boolean);}).filter(function(parts){return parts.length>0;});
     if(!splitPaths.length)return'';
@@ -797,6 +814,8 @@ const Parser={
     _tsLanguages:Object.create(null),
     _tsParsers:Object.create(null),
     _callCandidateThreshold:250,
+    maxAnalyzableFileBytes:2*1024*1024,
+    isOversized:function(size){return Number.isFinite(size)&&size>Parser.maxAnalyzableFileBytes;},
     treeSitterWasmBase:(typeof CODEFLOW_VENDOR_BASE!=='undefined'?CODEFLOW_VENDOR_BASE:'vendor/')+'tree-sitter-wasms/',
     treeSitterGrammars:{
         python:{grammar:'python',exts:['.py','.pyw','.pyi'],coverage:'calls'},
@@ -1054,14 +1073,40 @@ const Parser={
         }
         return links;
     },
+    buildMarkdownPathIndex:function(allPaths){
+        var exact=Object.create(null);
+        var byBase=Object.create(null);
+        var markdownByStem=Object.create(null);
+        (allPaths||[]).forEach(function(path){
+            var lower=path.toLowerCase();
+            if(exact[lower]===undefined)exact[lower]=path;
+            var base=lower.split('/').pop();
+            if(byBase[base]===undefined)byBase[base]=path;
+            var markdownMatch=base.match(/^(.*)\.(?:md|markdown)$/);
+            if(markdownMatch&&markdownByStem[markdownMatch[1]]===undefined)markdownByStem[markdownMatch[1]]=path;
+        });
+        return{exact:exact,byBase:byBase,markdownByStem:markdownByStem};
+    },
     // Mirror of tests/md-extractors.mjs::resolveMarkdownLink. Keep in sync.
-    resolveMarkdownLink:function(rawTarget,fromPath,allPaths,kind){
+    resolveMarkdownLink:function(rawTarget,fromPath,allPathsOrIndex,kind){
         if(!rawTarget)return null;
-        var allLower=allPaths.map(function(p){return p.toLowerCase();});
+        var pathIndex=allPathsOrIndex&&allPathsOrIndex.exact&&allPathsOrIndex.byBase
+            ?allPathsOrIndex
+            :(function(allPaths){
+                var exact=Object.create(null),byBase=Object.create(null),markdownByStem=Object.create(null);
+                allPaths.forEach(function(path){
+                    var lower=path.toLowerCase();
+                    if(exact[lower]===undefined)exact[lower]=path;
+                    var base=lower.split('/').pop();
+                    if(byBase[base]===undefined)byBase[base]=path;
+                    var markdownMatch=base.match(/^(.*)\.(?:md|markdown)$/);
+                    if(markdownMatch&&markdownByStem[markdownMatch[1]]===undefined)markdownByStem[markdownMatch[1]]=path;
+                });
+                return{exact:exact,byBase:byBase,markdownByStem:markdownByStem};
+            })(allPathsOrIndex||[]);
         function findExact(candidate){
             var c=candidate.toLowerCase();
-            var i=allLower.indexOf(c);
-            return i>=0?allPaths[i]:null;
+            return pathIndex.exact[c]===undefined?null:pathIndex.exact[c];
         }
         function findWithMd(candidate){
             var hit=findExact(candidate);
@@ -1095,15 +1140,11 @@ const Parser={
         }
         var baseName=rawTarget.split('#')[0].split('?')[0].split('/').pop();
         if(!baseName)return null;
-        for(var i=0;i<allPaths.length;i++){
-            var pname=allPaths[i].split('/').pop().toLowerCase();
-            if(/\.(md|markdown)$/i.test(baseName)){
-                if(pname===baseName.toLowerCase())return allPaths[i];
-            }else if(pname===baseName.toLowerCase()+'.md'||pname===baseName.toLowerCase()+'.markdown'){
-                return allPaths[i];
-            }
+        var lowerBase=baseName.toLowerCase();
+        if(/\.(md|markdown)$/i.test(baseName)){
+            return pathIndex.byBase[lowerBase]===undefined?null:pathIndex.byBase[lowerBase];
         }
-        return null;
+        return pathIndex.markdownByStem[lowerBase]||null;
     },
     detectLayer:function(p){
         // Prepend a leading slash so root-level layer folders (e.g. "services/x.ts")
@@ -1335,10 +1376,8 @@ const Parser={
         if(n1===n2)return 1;
         if(n1.length===0||n2.length===0)return 0;
 
-        // Use longest common subsequence ratio
         var lcs=Parser.lcsLength(n1,n2);
-        var maxLen=Math.max(n1.length,n2.length);
-        return lcs/maxLen;
+        return lcs/Math.max(n1.length,n2.length);
     },
 
     // Longest common subsequence length (optimized for similarity)
@@ -1351,15 +1390,18 @@ const Parser={
         }
 
         var m=s1.length,n=s2.length;
-        var prev=new Array(n+1).fill(0);
-        var curr=new Array(n+1).fill(0);
+        // Typed rows avoid allocating boxed numbers in the O(n*m) inner loop.
+        // Values cannot exceed the 500-character sampling cap above.
+        var prev=new Uint16Array(n+1);
+        var curr=new Uint16Array(n+1);
 
         for(var i=1;i<=m;i++){
+            var leftCode=s1.charCodeAt(i-1);
             for(var j=1;j<=n;j++){
-                if(s1[i-1]===s2[j-1]){
+                if(leftCode===s2.charCodeAt(j-1)){
                     curr[j]=prev[j-1]+1;
                 }else{
-                    curr[j]=Math.max(prev[j],curr[j-1]);
+                    curr[j]=prev[j]>curr[j-1]?prev[j]:curr[j-1];
                 }
             }
             var tmp=prev;prev=curr;curr=tmp;
@@ -2622,7 +2664,16 @@ const Parser={
         return{byName:byName,byPascalName:byPascalName,byKey:byKey};
     },
 
-    resolveCallGraphImportPath:function(importPath,fromFile,files){
+    buildCallGraphPathIndex:function(files){
+        var pathMap=Object.create(null);
+        (files||[]).forEach(function(file){
+            var p=String(file.path||file.name||'').replace(/\\/g,'/').replace(/^\/+/,'');
+            if(p)pathMap[p.toLowerCase()]=p;
+        });
+        return{pathMap:pathMap};
+    },
+
+    resolveCallGraphImportPath:function(importPath,fromFile,filesOrIndex){
         if(!importPath||/^(?:node:|https?:|data:|mailto:)/i.test(importPath))return null;
         var fromPath=String(fromFile||'').replace(/\\/g,'/').replace(/^\/+/,'');
         var fromDir=fromPath.indexOf('/')>=0?fromPath.split('/').slice(0,-1).join('/'):'';
@@ -2665,11 +2716,9 @@ const Parser={
             return null;
         }
 
-        var pathMap=Object.create(null);
-        (files||[]).forEach(function(file){
-            var p=String(file.path||file.name||'').replace(/\\/g,'/').replace(/^\/+/,'');
-            if(p)pathMap[p.toLowerCase()]=p;
-        });
+        var pathMap=filesOrIndex&&filesOrIndex.pathMap
+            ?filesOrIndex.pathMap
+            :Parser.buildCallGraphPathIndex(filesOrIndex).pathMap;
         var exts=['','.js','.jsx','.ts','.tsx','.mjs','.cjs','.vue','.svelte','.py','.pyw','.pyi','.vba','.bas','.cls','.pas','.pp','.inc','/index.js','/index.jsx','/index.ts','/index.tsx','/__init__.py'];
         for(var i=0;i<candidates.length;i++){
             for(var j=0;j<exts.length;j++){
@@ -2680,7 +2729,7 @@ const Parser={
         return null;
     },
 
-    extractCallGraphImportMap:function(content,fromFile,files){
+    extractCallGraphImportMap:function(content,fromFile,filesOrIndex){
         var locals=Object.create(null);
         var targets=new Set();
         function addLocal(localName,resolved){
@@ -2721,25 +2770,25 @@ const Parser={
         while((match=jsImportRe.exec(source))!==null){
             var importSpec=match[1]||'';
             if(/^\s*type\b/.test(importSpec))continue;
-            var resolved=Parser.resolveCallGraphImportPath(match[2],fromFile,files);
+            var resolved=Parser.resolveCallGraphImportPath(match[2],fromFile,filesOrIndex);
             addTarget(resolved);
             parseJsImportSpec(importSpec,resolved);
         }
         var cjsNamedRe=/\b(?:const|let|var)\s+\{([\s\S]*?)\}\s*=\s*require\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g;
         while((match=cjsNamedRe.exec(source))!==null){
-            var namedResolved=Parser.resolveCallGraphImportPath(match[2],fromFile,files);
+            var namedResolved=Parser.resolveCallGraphImportPath(match[2],fromFile,filesOrIndex);
             addTarget(namedResolved);
             parseImportNames(match[1],namedResolved);
         }
         var cjsDefaultRe=/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g;
         while((match=cjsDefaultRe.exec(source))!==null){
-            var defaultResolved=Parser.resolveCallGraphImportPath(match[2],fromFile,files);
+            var defaultResolved=Parser.resolveCallGraphImportPath(match[2],fromFile,filesOrIndex);
             addLocal(match[1],defaultResolved);
         }
 
         var pyFromRe=/^\s*from\s+([.\w]+)\s+import\s+([^\n#]+)/gm;
         while((match=pyFromRe.exec(source))!==null){
-            var pyResolved=Parser.resolveCallGraphImportPath(match[1],fromFile,files);
+            var pyResolved=Parser.resolveCallGraphImportPath(match[1],fromFile,filesOrIndex);
             addTarget(pyResolved);
             parseImportNames(match[2].replace(/[()]/g,''),pyResolved);
         }
@@ -2750,7 +2799,7 @@ const Parser={
                 var pieces=part.split(/\s+as\s+/);
                 var moduleName=(pieces[0]||'').trim();
                 var localName=(pieces[1]||moduleName.split('.').pop()||'').trim();
-                var moduleResolved=Parser.resolveCallGraphImportPath(moduleName,fromFile,files);
+                var moduleResolved=Parser.resolveCallGraphImportPath(moduleName,fromFile,filesOrIndex);
                 addLocal(localName,moduleResolved);
             });
         }
@@ -2762,7 +2811,7 @@ const Parser={
                 match[1].split(',').forEach(function(part){
                     var unitMatch=part.trim().match(/^([A-Za-z_][A-Za-z0-9_.]*)/);
                     if(!unitMatch)return;
-                    var unitResolved=Parser.resolveCallGraphImportPath(unitMatch[1],fromFile,files);
+                    var unitResolved=Parser.resolveCallGraphImportPath(unitMatch[1],fromFile,filesOrIndex);
                     addTarget(unitResolved);
                     addLocal(unitMatch[1].toLowerCase(),unitResolved);
                 });
@@ -4865,9 +4914,12 @@ async function buildAnalysisData(options){
     var fnNames=Object.keys(fnDefIndex.byName);
     var fnNameIndex=Parser.buildFunctionNameIndex(fnNames);
     var fnDefLineIndex=Parser.buildFunctionDefLineIndex(allFns);
+    var callGraphPathIndex=Parser.buildCallGraphPathIndex(analyzed);
     var fileImportInfo=Object.create(null);
     analyzed.forEach(function(file){
-        fileImportInfo[file.path]=Parser.extractCallGraphImportMap(file.content||'',file.path,analyzed);
+        fileImportInfo[file.path]=file.isCode===false
+            ?{locals:Object.create(null),targets:new Set()}
+            :Parser.extractCallGraphImportMap(file.content||'',file.path,callGraphPathIndex);
     });
     var conns=[];
     var fnStats=Object.create(null);
@@ -4961,7 +5013,7 @@ async function buildAnalysisData(options){
         progress('Analyzing dependencies (2/6)... '+batchEnd+'/'+analyzed.length+' files');
         for(var fi=bi;fi<batchEnd;fi++){
             var file=analyzed[fi];
-            if(!file.content)continue;
+            if(!file.content||file.isCode===false)continue;
             var calls=Parser.findCalls(file.content,fnNames,file.path,fnDefLineIndex,fnNameIndex);
             Object.entries(calls).forEach(function(entry){
                 var fn=entry[0],cnt=entry[1];
@@ -4989,6 +5041,7 @@ async function buildAnalysisData(options){
     progress('Resolving markdown links...');
     await yieldFn();
     var mdAllPaths=analyzed.map(function(f){return f.path;});
+    var mdPathIndex=Parser.buildMarkdownPathIndex(mdAllPaths);
     analyzed.forEach(function(file){
         if(!Parser.isMarkdown(file.name))return;
         file.layer='note';
@@ -4996,7 +5049,7 @@ async function buildAnalysisData(options){
         var links=Parser.extractMarkdownLinks(file.content);
         var deps=[];
         links.forEach(function(link){
-            var resolved=Parser.resolveMarkdownLink(link.target,file.path,mdAllPaths,link.kind);
+            var resolved=Parser.resolveMarkdownLink(link.target,file.path,mdPathIndex,link.kind);
             deps.push({kind:link.kind,raw:link.raw,target:link.target,resolved:resolved});
             if(resolved&&resolved!==file.path){
                 conns.push({source:file.path,target:resolved,fn:link.raw,count:1,kind:link.kind});
@@ -5007,6 +5060,13 @@ async function buildAnalysisData(options){
     analyzed.forEach(function(f){if(!f.dependencies)f.dependencies=[];});
 
     var issues=[];
+    var oversizedFiles=analyzed.filter(function(file){return file.analysisSkipped==='oversized';});
+    if(oversizedFiles.length)issues.push({
+        type:'warning',
+        title:oversizedFiles.length+' Oversized Files Skipped',
+        desc:'Files larger than 2 MB are listed but their contents are not parsed',
+        items:oversizedFiles.map(function(file){return{name:file.name,file:file.path,size:file.size||0};})
+    });
     var deadFns=Object.entries(fnStats).filter(function(x){
         var stats=x[1],name=stats.name;
         if(stats.internal>0||stats.external>0)return false;
@@ -5111,7 +5171,7 @@ async function buildAnalysisData(options){
         architectureDiagram:architectureDiagram,
         deadFunctions:deadFns.map(function(x){var codeLines=x[1].code?x[1].code.split('\n').length:0;return{name:x[1].name,file:x[1].file,folder:x[1].folder,line:x[1].line,code:x[1].code,codeLines:codeLines,ext:x[1].file.split('.').pop()};}),
         excludePatterns:excludePatterns,
-        stats:{files:analyzed.length,functions:allFns.length,connections:conns.length,dead:deadFns.length,patterns:patterns.length,security:securityIssues.filter(function(i){return i.severity==='high';}).length,duplicates:duplicates.length,violations:layerViolations.length,loc:totalLoc,languages:langArray,parserModes:parserArray}
+        stats:{files:analyzed.length,functions:allFns.length,connections:conns.length,dead:deadFns.length,patterns:patterns.length,security:securityIssues.filter(function(i){return i.severity==='high';}).length,duplicates:duplicates.length,violations:layerViolations.length,skipped:oversizedFiles.length,loc:totalLoc,languages:langArray,parserModes:parserArray}
     };
     dataObj.suggestions=Parser.generateSuggestions(dataObj);
     return dataObj;
@@ -6118,6 +6178,11 @@ function App(){
                     var f=files[i];
                     setProgress('Analyzing '+(i+1)+'/'+max+': '+f.name);
                     var isCodeFile=f.isCode!==false&&Parser.isCode(f.name);
+                    if(Parser.isOversized(f.size)){
+                        analyzed.push(makeOversizedAnalysisFile(f,f.size,isCodeFile));
+                        processFile(i+1);
+                        return;
+                    }
                     if(isCodeFile){
                         Promise.all([
                             GitHub.getFile(p.owner,p.repo,f.path),
@@ -6377,6 +6442,11 @@ function App(){
                 var fileHandle=f.handle;
                 if(isCodeFile){
                     var fileObj=await fileHandle.getFile();
+                    if(Parser.isOversized(fileObj.size)){
+                        analyzed.push(makeOversizedAnalysisFile(f,fileObj.size,isCodeFile));
+                        processFile(i+1);
+                        return;
+                    }
                     var content=await fileObj.text();
                     var layer=Parser.detectLayer(f.path);
                     var actualIsCode=!Parser.isScriptContainer(f.path)||Parser.hasEmbeddedCode(content,f.path);
@@ -6388,6 +6458,11 @@ function App(){
                     processFile(i+1);
                 }else{
                     var fileObj=await fileHandle.getFile();
+                    if(Parser.isOversized(fileObj.size)){
+                        analyzed.push(makeOversizedAnalysisFile(f,fileObj.size,isCodeFile));
+                        processFile(i+1);
+                        return;
+                    }
                     var content=await fileObj.text();
                     var layer=Parser.detectLayer(f.path);
                     var lines=content?content.split('\n').length:0;
@@ -6487,6 +6562,10 @@ function App(){
                 setProgress('Analyzing '+(i+1)+'/'+max+': '+f.name);
                 var isCodeFile=f.isCode!==false&&Parser.isCode(f.name);
                 try{
+                    if(Parser.isOversized(f.size)){
+                        analyzed.push(makeOversizedAnalysisFile(f,f.size,isCodeFile));
+                        continue;
+                    }
                     var content=await f.file.text();
                     var layer=Parser.detectLayer(f.path);
                     if(isCodeFile){
@@ -6586,6 +6665,10 @@ function App(){
                 setProgress('Analyzing '+(i+1)+'/'+max+': '+f.name);
                 var isCodeFile=f.isCode!==false&&Parser.isCode(f.name);
                 try{
+                    if(Parser.isOversized(f.size)){
+                        analyzed.push(makeOversizedAnalysisFile(f,f.size,isCodeFile));
+                        continue;
+                    }
                     var content=await f.entry.async('string');
                     var layer=Parser.detectLayer(f.path);
                     if(isCodeFile){

@@ -94,13 +94,22 @@ test('headless argument parser accepts equals and repeated forms', () => {
   assert.deepEqual(parsed.exclude, ['dist/**', '*.min.js']);
 });
 
-test('headless collection ignores vendored dependencies by default', async (t) => {
+test('headless collection prunes dependencies, caches, and local worktrees by default', async (t) => {
   const fixture = await mkdtemp(join(tmpdir(), 'codeflow-headless-'));
   t.after(() => rm(fixture, { recursive: true, force: true }));
   await mkdir(join(fixture, 'vendor'), { recursive: true });
+  await mkdir(join(fixture, '.local', 'worktrees', 'copy'), { recursive: true });
+  await mkdir(join(fixture, '.turbo', 'cache'), { recursive: true });
+  await mkdir(join(fixture, '.claude', 'worktrees', 'copy'), { recursive: true });
   await writeFile(join(fixture, 'index.js'), 'export function included() { return true; }\n');
   await writeFile(join(fixture, 'vendor', 'ignored.js'), 'export function ignored() { return false; }\n');
+  await writeFile(join(fixture, '.local', 'worktrees', 'copy', 'ignored.js'), 'export function ignoredLocal() {}\n');
+  await writeFile(join(fixture, '.turbo', 'cache', 'ignored.js'), 'export function ignoredCache() {}\n');
+  await writeFile(join(fixture, '.claude', 'worktrees', 'copy', 'ignored.js'), 'export function ignoredWorktree() {}\n');
+  await writeFile(join(fixture, 'huge.json'), 'x'.repeat(2 * 1024 * 1024 + 1));
 
   const result = await analyze({ repoRoot: fixture });
-  assert.deepEqual(result.data.files.map((file) => file.path), ['index.js']);
+  assert.deepEqual(result.data.files.map((file) => file.path), ['huge.json', 'index.js']);
+  assert.equal(result.data.files[0].analysisSkipped, 'oversized');
+  assert.equal(result.data.stats.skipped, 1);
 });

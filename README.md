@@ -169,6 +169,8 @@ Click the "Open Folder" button to analyze code from your computer:
 - **Drag & Drop:** Drag files or folders directly onto the page
 - **Custom Excludes:** Add patterns like `uploads/**`, `**/cache/**`, or `*.png` before scanning
 
+Generated dependencies, caches, build output, local worktrees, and test artifacts are pruned automatically (for example `node_modules`, `.next`, `.turbo`, `.local`, `dist`, and `playwright-report`). Individual files over 2 MB remain visible in results but their contents are not parsed.
+
 All processing happens locally in your browser - nothing is uploaded.
 
 ### Shareable Links

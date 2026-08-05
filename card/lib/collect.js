@@ -22,8 +22,19 @@ const DEFAULT_IGNORES = new Set([
   '.parcel-cache',
   '.turbo',
   '.vercel',
+  '.local',
+  '.artifacts',
+  '.playwright-cli',
+  'playwright-report',
+  'test-results',
+  '.claude',
+  '.codex',
   '.idea',
   '.vscode',
+  '.pnpm-store',
+  '.yarn',
+  'tmp',
+  'temp',
   '__pycache__',
   '.venv',
   'venv',
@@ -41,7 +52,7 @@ function walk(root, current, files, Parser, excludePatterns) {
   }
   for (const entry of entries) {
     if (entry.name.startsWith('.git')) continue;
-    if (DEFAULT_IGNORES.has(entry.name)) continue;
+    if (DEFAULT_IGNORES.has(entry.name.toLowerCase())) continue;
     const full = path.join(current, entry.name);
     const repoPath = path.relative(root, full).split(path.sep).join('/');
     // Prune excluded paths during the walk — exclusion must happen before
@@ -55,12 +66,19 @@ function walk(root, current, files, Parser, excludePatterns) {
     }
     if (!entry.isFile()) continue;
     if (!Parser.isIncluded(entry.name)) continue;
+    let size = 0;
+    try {
+      size = fs.statSync(full).size;
+    } catch {
+      // A racing filesystem change will be handled by the read step.
+    }
     files.push({
       fullPath: full,
       path: repoPath,
       name: path.basename(repoPath),
       folder: repoPath.includes('/') ? repoPath.slice(0, repoPath.lastIndexOf('/')) : 'root',
       isCode: Parser.isCode(entry.name),
+      size,
     });
   }
 }
@@ -73,13 +91,30 @@ async function buildAnalyzed(repoRoot, Parser, excludePatterns) {
   const analyzed = [];
   const allFns = [];
   for (const file of files) {
+    const layer = Parser.detectLayer(file.path);
+    if (Parser.isOversized(file.size)) {
+      analyzed.push({
+        path: file.path,
+        name: file.name,
+        folder: file.folder,
+        content: '',
+        functions: [],
+        lines: 0,
+        layer,
+        churn: 0,
+        isCode: file.isCode,
+        size: file.size,
+        analysisSkipped: 'oversized',
+        parserProvenance: 'skipped:size-limit',
+      });
+      continue;
+    }
     let content;
     try {
       content = fs.readFileSync(file.fullPath, 'utf8');
     } catch {
       continue;
     }
-    const layer = Parser.detectLayer(file.path);
     const isContainer = Parser.isScriptContainer(file.path);
     const actualIsCode =
       file.isCode !== false && (!isContainer || Parser.hasEmbeddedCode(content, file.path));
