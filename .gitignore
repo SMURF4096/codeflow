@@ -30,6 +30,10 @@ Thumbs.db
 *credentials*.json
 *adminsdk*.json
 
+# Local scratch and generated planning artifacts
+card/dev/
+docs/superpowers/
+
 # Backup and editor swap files
 *.bak
 *.orig
