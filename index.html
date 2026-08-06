@@ -742,6 +742,23 @@ function makeOversizedAnalysisFile(file,size,isCode){
     };
 }
 
+function makeFetchFailedAnalysisFile(file){
+    return{
+        path:file.path,
+        name:file.name,
+        folder:file.folder,
+        content:'',
+        functions:[],
+        lines:0,
+        layer:Parser.detectLayer(file.path),
+        churn:0,
+        isCode:false,
+        size:file.size||0,
+        analysisSkipped:'fetch-failed',
+        parserProvenance:'skipped:fetch-failed'
+    };
+}
+
 function getArchiveRootPrefix(paths){
     var splitPaths=(paths||[]).map(function(path){return normalizeExcludePath(path).split('/').filter(Boolean);}).filter(function(parts){return parts.length>0;});
     if(!splitPaths.length)return'';
@@ -1051,6 +1068,20 @@ const Parser={
         return Parser.getEmbeddedCodeBlocks(content,filename,{includeHandlers:true}).length>0;
     },
     isMarkdown:function(n){return ['.md','.markdown'].some(function(e){return n.toLowerCase().endsWith(e);});},
+    // Multi-language test-file conventions: JS (.test./.spec./__tests__), Ruby
+    // (spec/**/*_spec.rb, test/**/*_test.rb), Python (test_*.py, *_test.py),
+    // Go (*_test.go), JVM/C#/PHP (*Test.java etc.), Elixir (*_test.exs).
+    isTestFile:function(path){
+        var p=String(path||'').replace(/\\/g,'/');
+        var lower=p.toLowerCase();
+        if(/(^|\/)(tests?|spec|specs|__tests__)\//.test(lower))return true;
+        if(/\.(test|spec)\.[a-z]+$/.test(lower))return true;
+        if(/_(test|spec)\.(rb|go|py|exs|ex|cr|php|rs)$/.test(lower))return true;
+        if(/(^|\/)test_[^\/]*\.py$/.test(lower))return true;
+        if(/(^|\/)conftest\.py$/.test(lower))return true;
+        if(/(Test|Tests|Spec)\.(java|kt|kts|scala|cs|groovy|swift)$/.test(p))return true;
+        return false;
+    },
     // Mirror of tests/md-extractors.mjs::extractMarkdownLinks. Keep in sync.
     extractMarkdownLinks:function(content){
         if(!content)return[];
@@ -1475,13 +1506,15 @@ const Parser={
             if(!blocks.length)return{score:0,level:'low'};
             content=blocks.map(function(block){return block.content;}).join('\n');
         }
-        // Approximate cyclomatic complexity - supports JS, Python, and other languages
+        // Approximate cyclomatic complexity - supports JS, Python, Ruby, and other languages
         var complexity=1;
         // JS/C-style patterns
         var patterns=[/\bif\s*\(/g,/\belse\s+if\s*\(/g,/\bwhile\s*\(/g,/\bfor\s*\(/g,/\bcase\s+/g,/\bcatch\s*\(/g,/\?\s*[^:]+\s*:/g,/&&/g,/\|\|/g];
         // Python-specific patterns
         var pyPatterns=[/\bif\s+[^(]/g,/\belif\s+/g,/\bwhile\s+[^(]/g,/\bfor\s+\w+\s+in\s+/g,/\bexcept\s*/g,/\bwith\s+/g,/\band\b/g,/\bor\b/g,/\bif\s+.+\s+else\s+/g,/\bfor\s+.+\s+in\s+[^\n]*\]/g];
-        patterns.concat(pyPatterns).forEach(function(p){var m=content.match(p);if(m)complexity+=m.length;});
+        // Ruby-specific branch keywords (if/while are covered by the Python patterns)
+        var rbPatterns=[/\belsif\s+/g,/\bunless\s+/g,/\bwhen\s+/g,/\brescue\b/g,/\buntil\s+/g];
+        patterns.concat(pyPatterns,rbPatterns).forEach(function(p){var m=content.match(p);if(m)complexity+=m.length;});
         // Deduplicate: if both `if (` and `if ` match the same lines, the count is inflated
         // but for a quick approximation this is acceptable
         var level='low';
@@ -1532,7 +1565,7 @@ const Parser={
             suggestions.push({priority:'critical',icon:'shield',title:'Fix Security Issues',desc:highSec.length+' high-severity security issues found.',action:'Address hardcoded secrets, injection risks immediately',impact:'Prevents potential security breaches'});
         }
         // Test coverage hint
-        var testFiles=data.files.filter(function(f){return f.name.includes('.test.')||f.name.includes('.spec.')||f.path.includes('__tests__');});
+        var testFiles=data.files.filter(function(f){return Parser.isTestFile(f.path);});
         var testRatio=data.files.length>0?(testFiles.length/data.files.length*100):0;
         if(testRatio<10&&data.files.length>10){
             suggestions.push({priority:'medium',icon:'beaker',title:'Add Test Coverage',desc:'Only '+testFiles.length+' test files found ('+Math.round(testRatio)+'%). Consider adding more tests.',action:'Focus on testing critical paths and high-complexity files',impact:'Prevents regressions and improves confidence'});
@@ -2299,8 +2332,9 @@ const Parser={
             if((m=line.match(/(?:suspend\s+)?fun\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*[<(]/)))
                 addFn({name:m[1],file:filename,line:lineNum,code:extractCode(lineNum),isTopLevel:true,type:'function'});
 
-            // Ruby: def name
-            if((m=line.match(/^\s*def\s+([a-zA-Z_][a-zA-Z0-9_?!]*)/)))
+            // Ruby: def name / def self.name (singleton methods keep the real
+            // method name — reporting them as "self" makes findings unreadable)
+            if((m=line.match(/^\s*def\s+(?:self\s*\.\s*)?([a-zA-Z_][a-zA-Z0-9_]*[?!=]?)/)))
                 addFn({name:m[1],file:filename,line:lineNum,code:extractCode(lineNum),isTopLevel:true,type:'function'});
 
             // Rust: fn name or pub fn name
@@ -2680,6 +2714,7 @@ const Parser={
         var fromExt=(fromPath.split('.').pop()||'').toLowerCase();
         var isPython=['py','pyw','pyi'].indexOf(fromExt)>=0;
         var isPascal=['pas','pp','dpr','dpk','lpr','inc'].indexOf(fromExt)>=0;
+        var isRuby=['rb','rake'].indexOf(fromExt)>=0;
         var candidates=[];
         function normalizePath(path){
             var out=[];
@@ -2712,6 +2747,11 @@ const Parser={
             var unitPath=importPath.replace(/\./g,'/');
             addCandidate((fromDir?fromDir+'/':'')+unitPath);
             addCandidate(unitPath);
+        }else if(isRuby){
+            // Plain `require "ruby_llm/contract"` resolves from the gem load
+            // path — for repos that is conventionally lib/ (or the repo root).
+            addCandidate('lib/'+importPath);
+            addCandidate(importPath);
         }else{
             return null;
         }
@@ -2719,7 +2759,7 @@ const Parser={
         var pathMap=filesOrIndex&&filesOrIndex.pathMap
             ?filesOrIndex.pathMap
             :Parser.buildCallGraphPathIndex(filesOrIndex).pathMap;
-        var exts=['','.js','.jsx','.ts','.tsx','.mjs','.cjs','.vue','.svelte','.py','.pyw','.pyi','.vba','.bas','.cls','.pas','.pp','.inc','/index.js','/index.jsx','/index.ts','/index.tsx','/__init__.py'];
+        var exts=['','.js','.jsx','.ts','.tsx','.mjs','.cjs','.vue','.svelte','.py','.pyw','.pyi','.rb','.vba','.bas','.cls','.pas','.pp','.inc','/index.js','/index.jsx','/index.ts','/index.tsx','/__init__.py'];
         for(var i=0;i<candidates.length;i++){
             for(var j=0;j<exts.length;j++){
                 var candidate=normalizePath(candidates[i]+exts[j]).toLowerCase();
@@ -2804,6 +2844,16 @@ const Parser={
             });
         }
 
+        if(/\.(rb|rake)$/i.test(String(fromFile||''))){
+            var rubyReqRe=/^\s*require(_relative)?\s*\(?\s*['"]([^'"]+)['"]/gm;
+            while((match=rubyReqRe.exec(source))!==null){
+                // require_relative resolves against the requiring file's dir;
+                // route it through the existing ./ handling.
+                var rubyPath=match[1]?(/^\.\.?\//.test(match[2])?match[2]:'./'+match[2]):match[2];
+                addTarget(Parser.resolveCallGraphImportPath(rubyPath,fromFile,filesOrIndex));
+            }
+        }
+
         if(Parser.isPascal(fromFile)){
             var pascalSource=Parser.stripPascalNonCode(source);
             var pascalUsesRe=/\buses\s+([\s\S]*?);/gi;
@@ -2858,6 +2908,15 @@ const Parser={
                 });
             }
         });
+        // Ruby predicate/bang methods (foo?, foo!) tokenize without the suffix —
+        // keep them as candidates when the bare word appears in the content.
+        fnNames.forEach(function(fn){
+            if(typeof fn!=='string'||seen.has(fn))return;
+            if(/[?!]$/.test(fn)&&wordSet.has(fn.slice(0,-1))){
+                seen.add(fn);
+                out.push(fn);
+            }
+        });
         return out;
     },
 
@@ -2902,7 +2961,9 @@ const Parser={
             return parts.length?parts.join('.').toLowerCase():'@member';
         }
 
-        var tokenRe=/\b[a-zA-Z_$][\w$]*\b/g;
+        // Ruby method names may end in ? or ! (eval_defined?, load_evals!) —
+        // the default \b token regex would strip the suffix and never match them.
+        var tokenRe=opts.isRuby?/\b[a-zA-Z_][\w]*[?!]?/g:/\b[a-zA-Z_$][\w$]*\b/g;
         var match;
         while((match=tokenRe.exec(source))!==null){
             var tokenName=opts.isPascal?match[0].toLowerCase():match[0];
@@ -2929,6 +2990,7 @@ const Parser={
             }
             var isDefinition=false;
             if(/\b(function|class|def)\s*$/.test(prefix))isDefinition=true;
+            if(opts.isRuby&&/\bdef\s+self\s*\.\s*$/.test(prefix))isDefinition=true;
             if(opts.isPython&&/\b(async\s+def|def|class)\s*$/.test(prefix))isDefinition=true;
             if(opts.isVBA&&/\b(Sub|Function)\s+$/i.test(prefix))isDefinition=true;
             if(opts.isPascal){
@@ -2937,11 +2999,21 @@ const Parser={
             }
             if(nextChar==='('&&!isDefinition){
                 matchedNames.forEach(function(name){calls[name]++;});
+            }else if(opts.isRuby&&prevChar==='.'&&!isDefinition){
+                // Ruby method calls need no parens: RubyLLM::Contract.eval_hosts,
+                // host.run_eval — a dotted receiver means invocation, not access.
+                matchedNames.forEach(function(name){calls[name]++;});
             }else if(opts.isPascal&&nextChar===';'&&!isDefinition&&(pascalQualifier||/^(?:[A-Za-z_]\w*\.)*\s*$/.test(prefix.trim()))){
                 matchedNames.forEach(function(name){calls[name]++;});
             }else if(!isDefinition&&'[,[:(={'.indexOf(prevChar)>=0&&' ,])};\n\r'.indexOf(nextChar)>=0){
                 matchedNames.forEach(function(name){refs[name]++;});
             }else if(opts.isPython&&prevChar==='@'&&!isDefinition){
+                matchedNames.forEach(function(name){refs[name]++;});
+            }else if(opts.isRuby&&!isDefinition){
+                // In Ruby a bare identifier that is not a local variable IS a
+                // method call (implicit receiver: `build_table.each`, `run_serial`).
+                // Mirror the Python tree-sitter policy: any non-definition
+                // occurrence of a known method name counts as a usage.
                 matchedNames.forEach(function(name){refs[name]++;});
             }
         }
@@ -3082,6 +3154,13 @@ const Parser={
         if(isPascal){
             var cleanPascal=Parser.stripPascalNonCode(content);
             return Parser.countCandidateCalls(cleanPascal,fnNames,{isPascal:true});
+        }
+
+        if(ext==='rb'||ext==='rake'){
+            // Strip # comments (but not #{...} interpolation) so commented-out
+            // code does not count as a call site.
+            var cleanRuby=content.replace(/#(?!\{)[^\n]*/g,'');
+            return Parser.countCandidateCalls(cleanRuby,fnNames,{isRuby:true});
         }
 
         if(isJS&&typeof acorn!=='undefined'){
@@ -3539,7 +3618,7 @@ function isArchitectureBuildOutput(path,name){
 
 function isArchitectureTestFile(path){
     var p=String(path||'').toLowerCase().replace(/\\/g,'/');
-    return /(^|\/)tests?\//.test(p)||/(^|\/)__tests__(\/|$)/.test(p)||/\.test\.(js|jsx|ts|tsx|mjs|cjs)$/.test(p)||/\.spec\.(js|jsx|ts|tsx|mjs|cjs)$/.test(p)||/\.smoke\.(js|mjs|cjs)$/.test(p);
+    return Parser.isTestFile(p)||/\.smoke\.(js|mjs|cjs)$/.test(p);
 }
 
 function isArchitectureFixtureFile(path){
@@ -5019,6 +5098,23 @@ async function buildAnalysisData(options){
                 var fn=entry[0],cnt=entry[1];
                 if(cnt<=0)return;
                 var defs=resolveCallDefinitions(fn,file);
+                if(!defs.length){
+                    // The name IS called somewhere but the receiver's type (or
+                    // import) could not be resolved to a single definition.
+                    // For a dead-code report a false negative is far cheaper
+                    // than a false positive, so mark every same-named
+                    // definition as possibly called instead of dropping the
+                    // call on the floor (polymorphic Ruby/duck-typed dispatch,
+                    // multi-file JS globals).
+                    var ambiguous=Parser.isPascal(file.path)
+                        ?fnDefIndex.byPascalName[fn.toLowerCase().split('.').pop()]||[]
+                        :fnDefIndex.byName[fn]||[];
+                    ambiguous.forEach(function(def){
+                        var st=fnStats[def.key];
+                        if(st)st.possiblyCalled=true;
+                    });
+                    return;
+                }
                 defs.forEach(function(def){
                     var stat=fnStats[def.key];
                     if(!stat)return;
@@ -5067,9 +5163,17 @@ async function buildAnalysisData(options){
         desc:'Files larger than 2 MB are listed but their contents are not parsed',
         items:oversizedFiles.map(function(file){return{name:file.name,file:file.path,size:file.size||0};})
     });
+    var fetchFailedFiles=analyzed.filter(function(file){return file.analysisSkipped==='fetch-failed';});
+    if(fetchFailedFiles.length)issues.push({
+        type:'critical',
+        title:fetchFailedFiles.length+' Files Not Fetched — Partial Analysis',
+        desc:'GitHub API requests failed (usually the unauthenticated rate limit of 60/hour). Every metric below is computed WITHOUT these files. Add a token, or use Open ZIP for a complete analysis.',
+        items:fetchFailedFiles.map(function(file){return{name:file.name,file:file.path,size:file.size||0};})
+    });
     var deadFns=Object.entries(fnStats).filter(function(x){
         var stats=x[1],name=stats.name;
         if(stats.internal>0||stats.external>0)return false;
+        if(stats.possiblyCalled)return false;
         if(stats.isClassMethod)return false;
         if(!stats.isTopLevel)return false;
         if(stats.decorators&&stats.decorators.length>0)return false;
@@ -5077,7 +5181,10 @@ async function buildAnalysisData(options){
         var baseName=name.includes('.')?name.split('.').pop():name;
         if(baseName.startsWith('__')&&baseName.endsWith('__'))return false;
         if(baseName.startsWith('test_')||baseName==='setUp'||baseName==='tearDown'||baseName==='setUpClass'||baseName==='tearDownClass')return false;
-        if(stats.file&&(stats.file.includes('test_')||stats.file.includes('_test.')||stats.file.includes('/tests/')))return false;
+        // Ruby constructors are invoked via Class.new, never by name; module/class
+        // lifecycle hooks and test hooks are invoked by the runtime.
+        if(stats.file&&/\.(rb|rake)$/.test(stats.file)&&['initialize','included','extended','inherited','prepended','method_missing','respond_to_missing?','setup','teardown'].indexOf(baseName)>=0)return false;
+        if(stats.file&&(stats.file.includes('test_')||stats.file.includes('_test.')||stats.file.includes('/tests/')||Parser.isTestFile(stats.file)))return false;
         if((baseName==='upgrade'||baseName==='downgrade')&&stats.file&&(stats.file.includes('migration')||stats.file.includes('alembic')||stats.file.includes('versions')))return false;
         if(['main','create_app','make_app','get_app','setup','configure','register','on_startup','on_shutdown','lifespan'].indexOf(baseName)>=0)return false;
         if(stats.isExported&&stats.file&&/\.[jt]sx?$/.test(stats.file))return false;
@@ -5094,13 +5201,23 @@ async function buildAnalysisData(options){
     var highCoup=Object.entries(coupling).filter(function(x){return x[1]>8;}).sort(function(a,b){return b[1]-a[1];});
     if(highCoup.length)issues.push({type:'warning',title:highCoup.length+' Highly Coupled',desc:'Files that import 8+ other files',items:highCoup.map(function(x){return{name:x[0].split('/').pop()+' ('+x[1]+' imports)',file:x[0],imports:x[1]};})});
 
-    var connSet=new Set(conns.map(function(c){return c.source+'|'+c.target;}));
+    // Circular dependencies = actual import statements in BOTH directions.
+    // Mutual call-graph edges or markdown cross-links are not import cycles
+    // (a README linking to a guide that links back is working documentation,
+    // and a registry module calling back into its hosts is a deliberate design).
     var circular=[];
-    conns.forEach(function(c){
-        if(connSet.has(c.target+'|'+c.source)){
-            var key=[c.source,c.target].sort().join('|');
-            if(!circular.includes(key))circular.push(key);
-        }
+    var circularSeen=new Set();
+    analyzed.forEach(function(file){
+        var info=fileImportInfo[file.path];
+        if(!info||!info.targets||typeof info.targets.forEach!=='function')return;
+        info.targets.forEach(function(target){
+            if(!target||target===file.path)return;
+            var other=fileImportInfo[target];
+            if(other&&other.targets&&typeof other.targets.has==='function'&&other.targets.has(file.path)){
+                var key=[file.path,target].sort().join('|');
+                if(!circularSeen.has(key)){circularSeen.add(key);circular.push(key);}
+            }
+        });
     });
     if(circular.length)issues.push({type:'critical',title:circular.length+' Circular Dependencies',desc:'Files that import each other',items:circular.map(function(p){var parts=p.split('|');return{name:parts.map(function(x){return x.split('/').pop();}).join(' ↔ '),files:parts};})});
 
@@ -5154,7 +5271,7 @@ async function buildAnalysisData(options){
         issues.push({type:'critical',title:layerViolations.length+' Architecture Violations',desc:'Lower layers importing from higher layers',items:layerViolations.map(function(v){return{name:v.fromLayer+' → '+v.toLayer,file:v.from,toFile:v.to,fn:v.fn,suggestion:v.suggestion};})});
     }
     var highComplexity=analyzed.filter(function(f){return f.complexity&&f.complexity.level==='critical';}).sort(function(a,b){return b.complexity.score-a.complexity.score;});
-    if(highComplexity.length)issues.push({type:'warning',title:highComplexity.length+' High Complexity Files',desc:'Files with complexity score >30',items:highComplexity.map(function(f){return{name:f.name+' ('+f.complexity.score+')',file:f.path,score:f.complexity.score,lines:f.lines};})});
+    if(highComplexity.length)issues.push({type:'warning',title:highComplexity.length+' High Complexity Files',desc:'Approximate cyclomatic complexity >30 (counts branch keywords and boolean operators per file)',items:highComplexity.map(function(f){return{name:f.name+' ('+f.complexity.score+')',file:f.path,score:f.complexity.score,lines:f.lines};})});
 
     var dataObj={
         files:analyzed,
@@ -6198,9 +6315,13 @@ function App(){
                                 if(actualIsCode){
                                     fns.forEach(function(fn){allFns.push(Object.assign({},fn,{folder:f.folder,layer:layer}));});
                                 }
+                            }else{
+                                // Content fetch failed (rate limit, network) — keep the
+                                // file visible instead of silently shrinking the repo.
+                                analyzed.push(makeFetchFailedAnalysisFile(f));
                             }
                             processFile(i+1);
-                        }).catch(function(){processFile(i+1);});
+                        }).catch(function(){analyzed.push(makeFetchFailedAnalysisFile(f));processFile(i+1);});
                     }else{
                         GitHub.getFile(p.owner,p.repo,f.path).then(function(content){
                             var layer=Parser.detectLayer(f.path);
@@ -6208,7 +6329,7 @@ function App(){
                             analyzed.push({path:f.path,name:f.name,folder:f.folder,content:content||'',functions:[],lines:lines,layer:layer,churn:0,isCode:false});
                             processFile(i+1);
                         }).catch(function(){
-                            analyzed.push({path:f.path,name:f.name,folder:f.folder,content:'',functions:[],lines:0,layer:Parser.detectLayer(f.path),churn:0,isCode:false});
+                            analyzed.push(makeFetchFailedAnalysisFile(f));
                             processFile(i+1);
                         });
                     }
@@ -6223,6 +6344,10 @@ function App(){
                             progress:setProgress,
                             yieldFn:yieldToBrowser
                         });
+                        var failedCount=analyzed.filter(function(af){return af.analysisSkipped==='fetch-failed';}).length;
+                        if(failedCount>0){
+                            showNotification(failedCount+' of '+analyzed.length+' files could not be fetched (GitHub rate limit?). Results are PARTIAL — add a token or use Open ZIP for full analysis.','warning');
+                        }
                         setData(dataObj);
                         setExpandedPaths(new Set(['']));
                         window.history.replaceState({},'',buildAppUrl(p.owner+'/'+p.repo,false));
