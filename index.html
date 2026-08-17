@@ -8076,6 +8076,7 @@ function App(){
         var centers={};
         folders.forEach(function(f,i){centers[f]={x:(i%cols+1)*cw,y:(Math.floor(i/cols)+1)*ch};});
         var keepReadable=graphConfig.vizType==='code';
+        codeZoomTransformRef.current={k:1,x:0,y:0};
         graphNodesByIdRef.current=Object.create(null);
         nodes.forEach(function(n){graphNodesByIdRef.current[n.id]=n;});
         function collideR(d){return liveCodeCollideRadius(d,keepReadable&&codeCardPathsRef.current.has(d.id));}
@@ -9695,8 +9696,8 @@ function App(){
             window.removeEventListener('pointerup',onUp);
             window.removeEventListener('pointercancel',onUp);
             sim.alphaTarget(0);
-            node.fx=null;node.fy=null;
-            if(!moved)selectFile(file.path);
+            if(moved){node.fx=node.x;node.fy=node.y;}
+            else{node.fx=null;node.fy=null;selectFile(file.path);}
         }
         window.addEventListener('pointermove',onMove);
         window.addEventListener('pointerup',onUp);
