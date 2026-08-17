@@ -454,16 +454,12 @@ body{font-family:'JetBrains Mono',monospace;background:var(--bg0);color:var(--t0
 .light .syn-tag{color:#e45649}
 .light .syn-attr{color:#986801}
 .light .syn-punct{color:#383a42}
-.code-split{display:flex;width:100%;height:100%;min-width:0;min-height:0}
-.code-split-graph{flex:1 1 48%;min-width:180px;position:relative;overflow:hidden}
-.code-split-graph svg{width:100%;height:100%;display:block}
-.code-split-resize{width:8px;flex-shrink:0;cursor:col-resize;background:var(--border);position:relative;z-index:20;touch-action:none}
-.code-split-resize:hover,.code-split-resize.active{background:var(--acc)}
-.code-split-pane{flex:1 1 52%;min-width:220px;max-width:70%;display:flex;flex-direction:column;background:var(--bg1);border-left:1px solid var(--border);min-height:0}
-.code-split-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border-bottom:1px solid var(--border);flex-shrink:0}
-.code-split-title{font-size:10px;font-weight:600;color:var(--t2);text-transform:uppercase;letter-spacing:0.6px}
-.code-split-hint{font-size:9px;color:var(--t3)}
-.code-sym-row{display:flex;flex-wrap:wrap;gap:4px;padding:6px 10px;border-bottom:1px solid var(--border2);flex-shrink:0;max-height:72px;overflow:auto}
+.code-canvas{position:relative;width:100%;height:100%;min-width:0;min-height:0;overflow:hidden}
+.code-canvas svg{width:100%;height:100%;display:block}
+.code-canvas-cards{position:absolute;inset:0;pointer-events:none;transform-origin:0 0;z-index:4}
+.code-canvas-hud{position:absolute;top:52px;left:50%;transform:translateX(-50%);z-index:51;display:flex;flex-direction:column;align-items:center;gap:6px;max-width:min(720px,calc(100% - 160px));pointer-events:none}
+.code-canvas-hint{font-size:10px;color:var(--t3);background:var(--bg1);border:1px solid var(--border);border-radius:8px;padding:6px 10px;text-align:center;line-height:1.4}
+.code-sym-row{display:flex;flex-wrap:wrap;gap:4px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg1);max-height:72px;overflow:auto;pointer-events:auto;justify-content:center}
 .code-sym-chip{font-size:9px;padding:3px 7px;border-radius:999px;border:1px solid var(--border);background:var(--bg0);color:var(--t2);cursor:pointer;font-family:inherit}
 .code-sym-chip:hover{border-color:var(--acc);color:var(--acc)}
 .code-sym-chip.active{background:var(--accbg);border-color:var(--acc);color:var(--acc)}
@@ -471,20 +467,16 @@ body{font-family:'JetBrains Mono',monospace;background:var(--bg0);color:var(--t0
 .code-sym-chip.import{box-shadow:inset 3px 0 0 #c678dd}
 .code-sym-chip.export{box-shadow:inset 3px 0 0 #98c379}
 .code-sym-chip.var{box-shadow:inset 3px 0 0 #e06c75}
-.code-file-tabs{display:flex;gap:4px;padding:6px 8px;border-bottom:1px solid var(--border2);overflow-x:auto;flex-shrink:0}
-.code-file-tab{font-size:9px;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg0);color:var(--t2);cursor:pointer;white-space:nowrap;font-family:inherit}
-.code-file-tab:hover{color:var(--t0);border-color:var(--acc)}
-.code-file-tab.active{background:var(--accbg);border-color:var(--acc);color:var(--acc)}
-.code-file-tab.connected{opacity:0.95}
-.code-cards{flex:1;overflow:auto;display:flex;flex-direction:column;gap:8px;padding:8px;min-height:0}
-.code-card{border:1px solid var(--border);border-radius:8px;background:var(--bg0);overflow:hidden;display:flex;flex-direction:column;min-height:120px}
-.code-card.primary{flex:1 1 55%;min-height:180px}
-.code-card.linked{flex:0 1 28%;min-height:110px;max-height:240px}
-.code-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;background:var(--bg2);border-bottom:1px solid var(--border2);cursor:pointer}
-.code-card-name{font-size:11px;font-weight:600;color:var(--t0)}
-.code-card-path{font-size:9px;color:var(--t3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.code-card-body{flex:1;overflow:auto;min-height:0}
+.code-card{position:absolute;width:320px;height:220px;border:1px solid var(--border);border-radius:8px;background:var(--bg0);overflow:hidden;display:flex;flex-direction:column;pointer-events:auto;box-shadow:0 10px 28px rgba(0,0,0,0.28);visibility:hidden;user-select:none}
+.code-card.primary{width:380px;height:280px;border-color:var(--acc);box-shadow:0 12px 32px rgba(0,0,0,0.34),0 0 0 1px var(--acc)}
+.code-card.linked{opacity:0.98}
+.code-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;background:var(--bg2);border-bottom:1px solid var(--border2);cursor:grab;touch-action:none;flex-shrink:0}
+.code-card-head:active{cursor:grabbing}
+.code-card-name{font-size:11px;font-weight:600;color:var(--t0);transform-origin:left center;display:inline-block;white-space:nowrap}
+.code-card-path{font-size:9px;color:var(--t3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:240px}
+.code-card-body{flex:1;overflow:auto;min-height:0;touch-action:pan-y;user-select:text}
 .code-card-body .file-preview-code{padding:8px 0;font-size:11px}
+.has-code-card .nc,.has-code-card .node-label{opacity:0!important;pointer-events:none}
 .sym-mark{border-radius:3px;padding:0 1px;cursor:pointer}
 .sym-mark.fn{background:rgba(97,175,239,0.16)}
 .sym-mark.import{background:rgba(198,120,221,0.16)}
@@ -502,16 +494,14 @@ body{font-family:'JetBrains Mono',monospace;background:var(--bg0);color:var(--t0
 .recent-mini-btn{font-size:8px;padding:3px 6px;border-radius:4px;border:1px solid var(--border);background:var(--bg2);color:var(--t2);cursor:pointer;font-family:inherit}
 .recent-mini-btn:hover{border-color:var(--acc);color:var(--acc)}
 .recent-mini-btn.danger:hover{border-color:var(--red);color:var(--red)}
+.recent-mini-btn.danger.armed{background:var(--red);border-color:var(--red);color:#fff}
 .recent-empty{font-size:10px;color:var(--t3);line-height:1.4;padding:4px 0}
 .stale-banner{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;background:var(--accbg);border:1px solid var(--acc);border-radius:6px;margin:0 0 8px;font-size:10px;color:var(--t1)}
 .github-hint{font-size:9px;color:var(--t3);line-height:1.45;margin-top:6px;max-width:420px}
 .github-hint button{background:none;border:none;color:var(--acc);cursor:pointer;font-family:inherit;font-size:9px;padding:0;text-decoration:underline}
 .cli-chip{padding:4px 8px;background:var(--accbg);border:1px solid var(--acc);border-radius:6px;font-size:9px;color:var(--acc)}
 @media(max-width:980px){
-.code-split{flex-direction:column}
-.code-split-graph{flex:1 1 42%;min-height:180px}
-.code-split-resize{width:100%;height:8px;cursor:row-resize}
-.code-split-pane{flex:1 1 58%;max-width:none;min-height:200px;border-left:0;border-top:1px solid var(--border)}
+.code-canvas-hud{top:56px;max-width:calc(100% - 24px)}
 }
 .auth-select{padding:6px 10px;background:var(--bg0);border:1px solid var(--border);border-radius:6px;color:var(--t0);font-family:inherit;font-size:10px;cursor:pointer;min-width:100px;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b8b95' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center;padding-right:28px}
 .auth-select:focus{outline:none;border-color:var(--acc)}
@@ -686,7 +676,7 @@ body{height:100dvh;min-height:100dvh}
  * 4. Shared analysis pipeline plus inline Web Worker fallback.
  * 5. React UI, local folder/ZIP ingestion, visualization, and modals.
  */
-const{useState,useEffect,useRef,useMemo,useCallback}=React;
+const{useState,useEffect,useLayoutEffect,useRef,useMemo,useCallback}=React;
 const COLORS=['#4d9fff','#a78bfa','#22d3ee','#00ff9d','#ff9f43','#ec4899','#ff5f5f','#84cc16'];
 const LAYER_COLORS={ui:'#4d9fff',components:'#22d3ee',services:'#a78bfa',utils:'#00ff9d',data:'#ff9f43',config:'#ec4899',test:'#f59e0b',modules:'#a78bfa',forms:'#22d3ee',classes:'#ff9f43',note:'#c084fc'};
 const IGNORE=new Set(['node_modules','.git','vendor','dist','build','out','coverage','.next','.nuxt','.cache','.parcel-cache','.turbo','.vercel','.local','.artifacts','.playwright-cli','playwright-report','test-results','.claude','.codex','.idea','.vscode','.pnpm-store','.yarn','tmp','temp','target','bin','obj','__pycache__','.venv','venv','env','.env','.tox','.mypy_cache','.pytest_cache','.ruff_cache','__pypackages__','.eggs','__macosx']);
@@ -5733,7 +5723,6 @@ function getConnectedFilePaths(path,connections){
 
 function collectVisibleCodeFiles(selectedPath,data,folderFilter,limit){
     if(!data||!data.files)return[];
-    var max=limit==null?4:limit;
     var filtered=folderFilter?data.files.filter(function(f){return f.folder===folderFilter||f.folder.startsWith(folderFilter+'/');}):data.files;
     var byPath=Object.create(null);
     filtered.forEach(function(f){byPath[f.path]=f;});
@@ -5745,8 +5734,80 @@ function collectVisibleCodeFiles(selectedPath,data,folderFilter,limit){
     }
     if(selectedPath)add(selectedPath);
     getConnectedFilePaths(selectedPath,data.connections).forEach(add);
-    if(!ordered.length&&filtered.length)add(filtered[0].path);
-    return ordered.slice(0,max);
+    if(limit==null||!isFinite(Number(limit)))return ordered;
+    return ordered.slice(0,Math.max(0,Number(limit)));
+}
+
+var CODE_CARD_WIDTH=320;
+var CODE_CARD_HEIGHT=220;
+var CODE_CARD_PRIMARY_WIDTH=380;
+var CODE_CARD_PRIMARY_HEIGHT=280;
+
+function codeCardSize(isPrimary){
+    return isPrimary
+        ?{width:CODE_CARD_PRIMARY_WIDTH,height:CODE_CARD_PRIMARY_HEIGHT}
+        :{width:CODE_CARD_WIDTH,height:CODE_CARD_HEIGHT};
+}
+
+function codeCardCollisionRadius(isCard){
+    if(!isCard)return 20;
+    var size=codeCardSize(false);
+    return Math.round(Math.hypot(size.width,size.height)/2)+18;
+}
+
+function liveCodeCollideRadius(node,isCard){
+    if(isCard)return codeCardCollisionRadius(true);
+    return Math.max(8,Math.min(24,5+((node&&node.fnCount)||0)*0.8))+12;
+}
+
+function codeCanvasTransformStyle(transform){
+    var t=transform||{};
+    var k=Number(t.k);
+    if(!isFinite(k)||k<=0)k=1;
+    var x=Number(t.x);
+    if(!isFinite(x))x=0;
+    var y=Number(t.y);
+    if(!isFinite(y))y=0;
+    return 'translate('+x+'px,'+y+'px) scale('+k+')';
+}
+
+function codeCardAnchorStyle(node,size){
+    size=size||codeCardSize(false);
+    if(!node||!isFinite(node.x)||!isFinite(node.y))return{visibility:'hidden',left:'0px',top:'0px'};
+    return{
+        visibility:'visible',
+        left:(node.x-size.width/2)+'px',
+        top:(node.y-size.height/2)+'px'
+    };
+}
+
+function applyCodeCardLayout(layer,nodesById,transform,primaryPath){
+    if(!layer)return{placed:0,titleScale:1};
+    layer.style.transform=codeCanvasTransformStyle(transform);
+    var k=transform&&isFinite(Number(transform.k))?Number(transform.k):1;
+    var titleScale=readableLabelScale(k);
+    var cards=layer.querySelectorAll?layer.querySelectorAll('[data-code-card]'):[];
+    var placed=0;
+    Array.prototype.forEach.call(cards,function(card){
+        var path=card.getAttribute('data-code-card');
+        var size=codeCardSize(path===primaryPath);
+        var style=codeCardAnchorStyle(nodesById&&nodesById[path],size);
+        card.style.visibility=style.visibility;
+        card.style.left=style.left;
+        card.style.top=style.top;
+        card.style.width=size.width+'px';
+        card.style.height=size.height+'px';
+        var title=card.querySelector?card.querySelector('.code-card-name'):null;
+        if(title)title.style.transform='scale('+titleScale+')';
+        if(style.visibility==='visible')placed++;
+    });
+    return{placed:placed,titleScale:titleScale};
+}
+
+function armRecentDelete(armedId,clickedId){
+    clickedId=clickedId||null;
+    if(clickedId&&armedId===clickedId)return{confirm:true,armedId:null};
+    return{confirm:false,armedId:clickedId};
 }
 
 function extractFileSymbols(file,connections){
@@ -5948,29 +6009,6 @@ function compactAnalysisForCache(data){
         copy.fnStats=stats;
     }
     return copy;
-}
-
-function codeSplitIsStacked(wrap){
-    if(!wrap||typeof getComputedStyle!=='function')return false;
-    try{
-        return getComputedStyle(wrap).flexDirection==='column';
-    }catch(e){
-        return false;
-    }
-}
-
-function codeSplitPanePercent(rect,point,stacked){
-    if(!rect||!point)return 42;
-    var next;
-    if(stacked){
-        var height=rect.height||1;
-        next=((rect.bottom-point.clientY)/height)*100;
-    }else{
-        var width=rect.width||1;
-        next=((rect.right-point.clientX)/width)*100;
-    }
-    if(!isFinite(next))return 42;
-    return Math.max(28,Math.min(72,next));
 }
 
 function openAnalysisCacheDb(){
@@ -6507,7 +6545,7 @@ function App(){
     var _recents=useState([]),recentAnalyses=_recents[0],setRecentAnalyses=_recents[1];
     var _cachedId=useState(null),cachedFromId=_cachedId[0],setCachedFromId=_cachedId[1];
     var _activeSym=useState(null),activeSymbol=_activeSym[0],setActiveSymbol=_activeSym[1];
-    var _codeWidth=useState(52),codePanePercent=_codeWidth[0],setCodePanePercent=_codeWidth[1];
+    var _pendingDel=useState(null),pendingRecentDelete=_pendingDel[0],setPendingRecentDelete=_pendingDel[1];
     var _cli=useState(null),cliStatus=_cli[0],setCliStatus=_cli[1];
     var _cliDirty=useState([]),cliDirty=_cliDirty[0],setCliDirty=_cliDirty[1];
     var isMobile=viewportWidth<=980;
@@ -6529,6 +6567,12 @@ function App(){
     var nodesRef=useRef(null);
     var linksRef=useRef(null);
     var selectFileRef=useRef(null);
+    var codeCardsLayerRef=useRef(null);
+    var codeCardPathsRef=useRef(new Set());
+    var codeZoomTransformRef=useRef({k:1,x:0,y:0});
+    var graphNodesByIdRef=useRef(Object.create(null));
+    var selectedPathRef=useRef(null);
+    var pendingRecentDeleteTimerRef=useRef(null);
     var zipInputRef=useRef(null);
     var zipArchiveRef=useRef(null);
     var zipFileRef=useRef(null);
@@ -6668,6 +6712,10 @@ function App(){
                 confirmResolverRef.current(false);
                 confirmResolverRef.current=null;
             }
+            if(pendingRecentDeleteTimerRef.current){
+                clearTimeout(pendingRecentDeleteTimerRef.current);
+                pendingRecentDeleteTimerRef.current=null;
+            }
         };
     },[]);
 
@@ -6682,6 +6730,18 @@ function App(){
         document.addEventListener('keydown',onKeyDown);
         return function(){document.removeEventListener('keydown',onKeyDown);};
     },[confirmDialog]);
+
+    useEffect(function(){
+        if(!pendingRecentDelete)return;
+        function onKeyDown(e){
+            if(e.key==='Escape'){
+                e.preventDefault();
+                clearPendingRecentDelete();
+            }
+        }
+        document.addEventListener('keydown',onKeyDown);
+        return function(){document.removeEventListener('keydown',onKeyDown);};
+    },[pendingRecentDelete]);
 
     useEffect(function(){
         var params=new URLSearchParams(window.location.search);
@@ -6792,6 +6852,7 @@ function App(){
     }
 
     function loadRecentAnalysis(id){
+        clearPendingRecentDelete();
         return getRecentAnalysis(id).then(function(record){
             if(!record){showNotification('That analysis is no longer cached.','warning');refreshRecentList();return null;}
             applyCachedAnalysis(record);
@@ -6806,12 +6867,32 @@ function App(){
         }).catch(function(){showNotification('Could not open cached analysis.','error');});
     }
 
-    function removeRecentAnalysis(id,e){
-        if(e)e.stopPropagation();
+    function clearPendingRecentDelete(){
+        if(pendingRecentDeleteTimerRef.current){
+            clearTimeout(pendingRecentDeleteTimerRef.current);
+            pendingRecentDeleteTimerRef.current=null;
+        }
+        setPendingRecentDelete(null);
+    }
+
+    function removeRecentAnalysis(id){
         deleteRecentAnalysis(id).then(function(){
             if(cachedFromId===id)setCachedFromId(null);
             refreshRecentList();
         }).catch(function(){});
+    }
+
+    function requestRecentDelete(id,e){
+        if(e)e.stopPropagation();
+        var next=armRecentDelete(pendingRecentDelete,id);
+        if(next.confirm){
+            clearPendingRecentDelete();
+            removeRecentAnalysis(id);
+            return;
+        }
+        setPendingRecentDelete(next.armedId);
+        if(pendingRecentDeleteTimerRef.current)clearTimeout(pendingRecentDeleteTimerRef.current);
+        pendingRecentDeleteTimerRef.current=setTimeout(function(){setPendingRecentDelete(null);},4000);
     }
 
     function startGithubZipDownload(owner,repo){
@@ -7913,8 +7994,35 @@ function App(){
 
     var codeViewFiles=useMemo(function(){
         if(!data)return[];
-        return collectVisibleCodeFiles(selected&&selected.path,data,folderFilter,4);
+        return collectVisibleCodeFiles(selected&&selected.path,data,folderFilter);
     },[data,selected,folderFilter]);
+    selectedPathRef.current=selected&&selected.path;
+    codeCardPathsRef.current=new Set(codeViewFiles.map(function(file){return file.path;}));
+
+    function syncCodeCards(){
+        applyCodeCardLayout(codeCardsLayerRef.current,graphNodesByIdRef.current,codeZoomTransformRef.current,selectedPathRef.current);
+    }
+
+    function refreshCodeCardForces(){
+        var sim=simRef.current;
+        if(!sim)return;
+        var collide=sim.force('collision');
+        if(collide&&typeof collide.radius==='function'){
+            collide.radius(function(d){return liveCodeCollideRadius(d,codeCardPathsRef.current.has(d.id));});
+        }
+        var linkForce=sim.force('link');
+        if(linkForce&&typeof linkForce.distance==='function'){
+            linkForce.distance(function(d){
+                var src=typeof d.source==='object'?d.source.id:d.source;
+                var tgt=typeof d.target==='object'?d.target.id:d.target;
+                var extra=(codeCardPathsRef.current.has(src)||codeCardPathsRef.current.has(tgt))?240:0;
+                return (graphConfig.linkDist||70)+extra;
+            });
+        }
+        if(nodesRef.current){
+            nodesRef.current.classed('has-code-card',function(d){return codeCardPathsRef.current.has(d.id);});
+        }
+    }
 
     var codeViewSymbols=useMemo(function(){
         return collectCrossFileSymbols(codeViewFiles,data?data.connections:[]);
@@ -7968,6 +8076,9 @@ function App(){
         var centers={};
         folders.forEach(function(f,i){centers[f]={x:(i%cols+1)*cw,y:(Math.floor(i/cols)+1)*ch};});
         var keepReadable=graphConfig.vizType==='code';
+        graphNodesByIdRef.current=Object.create(null);
+        nodes.forEach(function(n){graphNodesByIdRef.current[n.id]=n;});
+        function collideR(d){return liveCodeCollideRadius(d,keepReadable&&codeCardPathsRef.current.has(d.id));}
         function applyReadableLabels(k){
             if(!keepReadable)return;
             var s=readableLabelScale(k);
@@ -7976,7 +8087,9 @@ function App(){
         }
         var zoom=d3.zoom().scaleExtent([keepReadable?0.08:0.2,5]).on('zoom',function(e){
             container.attr('transform',e.transform);
+            codeZoomTransformRef.current=e.transform;
             applyReadableLabels(e.transform.k);
+            if(keepReadable)syncCodeCards();
         });
         svg.call(zoom);
         zoomRef.current=zoom;
@@ -7990,7 +8103,7 @@ function App(){
         if(graphConfig.viewMode==='force'){
             sim.force('link',d3.forceLink(links).id(function(d){return d.id;}).distance(graphConfig.linkDist).strength(0.3))
                .force('charge',d3.forceManyBody().strength(-graphConfig.spacing).distanceMax(400))
-               .force('collision',d3.forceCollide().radius(function(d){return getR(d)+12;}))
+               .force('collision',d3.forceCollide().radius(collideR))
                .force('x',d3.forceX(function(d){return centers[d.folder]?centers[d.folder].x:w/2;}).strength(0.15))
                .force('y',d3.forceY(function(d){return centers[d.folder]?centers[d.folder].y:h/2;}).strength(0.15));
         }else if(graphConfig.viewMode==='radial'){
@@ -7998,7 +8111,7 @@ function App(){
             nodes.forEach(function(n,i){n.angle=i/nodes.length*2*Math.PI;n.targetX=w/2+Math.cos(n.angle)*r;n.targetY=h/2+Math.sin(n.angle)*r;});
             sim.force('link',d3.forceLink(links).id(function(d){return d.id;}).distance(graphConfig.linkDist*0.5).strength(0.05))
                .force('charge',d3.forceManyBody().strength(-graphConfig.spacing*0.3))
-               .force('collision',d3.forceCollide().radius(function(d){return getR(d)+8;}))
+               .force('collision',d3.forceCollide().radius(collideR))
                .force('x',d3.forceX(function(d){return d.targetX;}).strength(0.8))
                .force('y',d3.forceY(function(d){return d.targetY;}).strength(0.8));
         }else if(graphConfig.viewMode==='hierarchical'){
@@ -8009,7 +8122,7 @@ function App(){
             sortedLayers.forEach(function(l,li){var g=layerGroups[l];var colW=w/(sortedLayers.length+1);g.forEach(function(n,ni){n.targetX=(li+1)*colW;n.targetY=(ni+1)*h/(g.length+1);});});
             sim.force('link',d3.forceLink(links).id(function(d){return d.id;}).distance(graphConfig.linkDist).strength(0.1))
                .force('charge',d3.forceManyBody().strength(-graphConfig.spacing*0.5).distanceMax(200))
-               .force('collision',d3.forceCollide().radius(function(d){return getR(d)+10;}))
+               .force('collision',d3.forceCollide().radius(collideR))
                .force('x',d3.forceX(function(d){return d.targetX||w/2;}).strength(0.9))
                .force('y',d3.forceY(function(d){return d.targetY||h/2;}).strength(0.3));
         }else if(graphConfig.viewMode==='grid'){
@@ -8018,7 +8131,7 @@ function App(){
             var cellH=h/(Math.ceil(nodes.length/gridCols)+1);
             nodes.forEach(function(n,i){n.targetX=(i%gridCols+1)*cellW;n.targetY=(Math.floor(i/gridCols)+1)*cellH;});
             sim.force('link',d3.forceLink(links).id(function(d){return d.id;}).distance(graphConfig.linkDist*1.5).strength(0.02))
-               .force('collision',d3.forceCollide().radius(function(d){return getR(d)+15;}))
+               .force('collision',d3.forceCollide().radius(collideR))
                .force('x',d3.forceX(function(d){return d.targetX;}).strength(1))
                .force('y',d3.forceY(function(d){return d.targetY;}).strength(1));
         }else if(graphConfig.viewMode==='metro'){
@@ -8038,7 +8151,7 @@ function App(){
             });
             nodes.filter(function(n){return!n.targetX;}).forEach(function(n,i){n.targetX=80+i*50;n.targetY=h-80;n.metroLine=roots.length;});
             sim.force('link',d3.forceLink(links).id(function(d){return d.id;}).distance(graphConfig.linkDist).strength(0.05))
-               .force('collision',d3.forceCollide().radius(function(d){return getR(d)+12;}))
+               .force('collision',d3.forceCollide().radius(collideR))
                .force('x',d3.forceX(function(d){return d.targetX||w/2;}).strength(0.95))
                .force('y',d3.forceY(function(d){return d.targetY||h/2;}).strength(0.95));
         }
@@ -8054,7 +8167,8 @@ function App(){
         nodesRef.current=node;
         node.call(d3.drag().on('start',function(e,d){if(!e.active)sim.alphaTarget(0.1).restart();d.fx=d.x;d.fy=d.y;}).on('drag',function(e,d){d.fx=e.x;d.fy=e.y;}).on('end',function(e,d){if(!e.active)sim.alphaTarget(0);d.fx=null;d.fy=null;}));
         node.on('click',function(e,d){e.stopPropagation();if(selectFileRef.current)selectFileRef.current(d.id);});
-        node.on('mouseenter',function(e,d){var r=svgRef.current.getBoundingClientRect();setTooltip({x:e.clientX-r.left+10,y:e.clientY-r.top,title:d.name,content:d.fnCount+' functions\n'+d.layer+' layer\n'+d.churn+' recent commits'});}).on('mouseleave',function(){setTooltip(null);});
+        node.classed('has-code-card',function(d){return keepReadable&&codeCardPathsRef.current.has(d.id);});
+        node.on('mouseenter',function(e,d){if(keepReadable&&codeCardPathsRef.current.has(d.id))return;var r=svgRef.current.getBoundingClientRect();setTooltip({x:e.clientX-r.left+10,y:e.clientY-r.top,title:d.name,content:d.fnCount+' functions\n'+d.layer+' layer\n'+d.churn+' recent commits'});}).on('mouseleave',function(){setTooltip(null);});
         svg.on('click',function(e){if(e.target===svgRef.current){setSelected(null);setBlastRadius(null);link.attr('stroke',theme==='light'?'#ccc':'#333').attr('stroke-opacity',0.4);node.selectAll('.nc').attr('opacity',1).attr('fill',getC);}});
         node.append('circle').attr('class','nc').attr('r',getR).attr('fill',getC).attr('stroke',function(d){var c=d3.color(getC(d));return c?c.brighter(0.3):'#fff';}).attr('stroke-width',1.5);
         // Hide labels for large graphs to reduce DOM overhead. Code view keeps titles readable.
@@ -8069,14 +8183,19 @@ function App(){
             folders.forEach(function(f){
                 var fn=nodesByFolder[f];
                 if(!fn||fn.length<1)return;
-                var pad=30,pts=[];
-                fn.forEach(function(n){if(n.x&&n.y)pts.push([n.x-pad,n.y-pad],[n.x+pad,n.y-pad],[n.x-pad,n.y+pad],[n.x+pad,n.y+pad]);});
+                var pts=[];
+                fn.forEach(function(n){
+                    if(!n.x||!n.y)return;
+                    var pad=(keepReadable&&codeCardPathsRef.current.has(n.id))?codeCardCollisionRadius(true):30;
+                    pts.push([n.x-pad,n.y-pad],[n.x+pad,n.y-pad],[n.x-pad,n.y+pad],[n.x+pad,n.y+pad]);
+                });
                 if(pts.length<3)return;
                 var hull=d3.polygonHull(pts);
                 if(hull){
                     var color=colorMap[f]||COLORS[folders.indexOf(f)%COLORS.length];
                     hullLayer.append('path').attr('d','M'+hull.join('L')+'Z').attr('fill',color).attr('fill-opacity',0.04).attr('stroke',color).attr('stroke-width',2).attr('stroke-opacity',0.25).attr('rx',8);
-                    var cx=d3.mean(fn,function(n){return n.x;}),cy=d3.min(fn,function(n){return n.y;})-pad-8;
+                    var hullPad=fn.some(function(n){return keepReadable&&codeCardPathsRef.current.has(n.id);})?codeCardCollisionRadius(true):30;
+                    var cx=d3.mean(fn,function(n){return n.x;}),cy=d3.min(fn,function(n){return n.y;})-hullPad-8;
                     hullLayer.append('text').attr('class','hull-label').attr('x',cx).attr('y',cy).attr('text-anchor','middle').attr('fill',color).attr('font-size',keepReadable?'11px':'10px').attr('font-family','JetBrains Mono').attr('font-weight','600').attr('opacity',0.85).text(f||'root');
                 }
             });
@@ -8091,13 +8210,28 @@ function App(){
                 link.attr('d',function(d){return'M'+d.source.x+','+d.source.y+'L'+d.target.x+','+d.target.y;});
             }
             node.attr('transform',function(d){return'translate('+d.x+','+d.y+')';});
+            if(keepReadable){
+                nodes.forEach(function(n){graphNodesByIdRef.current[n.id]=n;});
+                syncCodeCards();
+            }
             tickCount++;
             if(tickCount%hullInterval===0)updateHulls();
         });
         node.selectAll('text').attr('opacity',(keepReadable||graphConfig.showLabels)?1:0);
         }catch(e){console.error('Force graph error:',e);svg.selectAll('*').remove();svg.append('text').attr('x',20).attr('y',30).attr('fill','var(--t3)').text('Graph rendering error: '+e.message);}
+        if(keepReadable){
+            refreshCodeCardForces();
+            syncCodeCards();
+        }
         return function(){if(simRef.current)simRef.current.stop();};
     },[data,colorMap,colorMode,theme,folderFilter,graphConfig]);
+
+    useLayoutEffect(function(){
+        if(graphConfig.vizType!=='code')return;
+        refreshCodeCardForces();
+        if(simRef.current)simRef.current.alpha(codeCardPathsRef.current.size?0.28:0.12).restart();
+        syncCodeCards();
+    },[codeViewFiles,graphConfig.vizType,graphConfig.linkDist]);
 
     // 3D Force Graph Hook
     useEffect(function(){
@@ -8997,6 +9131,9 @@ function App(){
     }
     function computeGraphFitTransform(paddingSlack){
         paddingSlack=paddingSlack==null?100:paddingSlack;
+        if(graphConfig.vizType==='code'&&codeCardPathsRef.current&&codeCardPathsRef.current.size){
+            paddingSlack=Math.max(paddingSlack,codeCardCollisionRadius(true)*2);
+        }
         if(!zoomRef.current||!svgRef.current||!simRef.current)return null;
         var nodes=simRef.current.nodes();
         if(!nodes.length)return null;
@@ -9525,12 +9662,45 @@ function App(){
                         ),
                         React.createElement('div',{className:'recent-item-actions'},
                             React.createElement('button',{className:'recent-mini-btn',title:'Re-analyze',onClick:function(e){e.stopPropagation();reanalyzeRecent(item.id);}},'Re-analyze'),
-                            React.createElement('button',{className:'recent-mini-btn danger',title:'Delete cached analysis',onClick:function(e){removeRecentAnalysis(item.id,e);}},'Delete')
+                            React.createElement('button',{className:'recent-mini-btn danger'+(pendingRecentDelete===item.id?' armed':''),title:pendingRecentDelete===item.id?'Click again to delete':'Delete cached analysis',onClick:function(e){requestRecentDelete(item.id,e);}},pendingRecentDelete===item.id?'Confirm?':'Delete')
                         )
                     );
                 })
             ):React.createElement('div',{className:'recent-empty'},'Analyses you run are cached here so the same tree is not fetched twice.')
         );
+    }
+    function beginCodeCardDrag(e,file){
+        if(e.pointerType==='mouse'&&e.button!==0)return;
+        e.stopPropagation();
+        var node=graphNodesByIdRef.current[file.path];
+        var sim=simRef.current;
+        var transform=codeZoomTransformRef.current||{k:1,x:0,y:0};
+        var k=Number(transform.k);
+        if(!isFinite(k)||k<=0)k=1;
+        if(!node||!sim){
+            selectFile(file.path);
+            return;
+        }
+        var startX=e.clientX,startY=e.clientY,originX=node.x,originY=node.y,moved=false;
+        node.fx=node.x;node.fy=node.y;
+        sim.alphaTarget(0.18).restart();
+        function onMove(ev){
+            var dx=(ev.clientX-startX)/k,dy=(ev.clientY-startY)/k;
+            if(Math.abs(dx)+Math.abs(dy)>3)moved=true;
+            node.fx=originX+dx;node.fy=originY+dy;
+            syncCodeCards();
+        }
+        function onUp(){
+            window.removeEventListener('pointermove',onMove);
+            window.removeEventListener('pointerup',onUp);
+            window.removeEventListener('pointercancel',onUp);
+            sim.alphaTarget(0);
+            node.fx=null;node.fy=null;
+            if(!moved)selectFile(file.path);
+        }
+        window.addEventListener('pointermove',onMove);
+        window.addEventListener('pointerup',onUp);
+        window.addEventListener('pointercancel',onUp);
     }
     function renderCodeFileCard(file,isPrimary){
         if(!file)return null;
@@ -9552,8 +9722,8 @@ function App(){
                 :(sourceState==='loading'?'Loading source...':'Reopen this project to read source');
             body=React.createElement('div',{className:'empty-desc',style:{padding:'12px'}},message);
         }
-        return React.createElement('div',{key:file.path,className:'code-card'+(isPrimary?' primary':' linked'),onClick:function(){if(selected&&selected.path!==file.path)selectFile(file.path);}},
-            React.createElement('div',{className:'code-card-head',onClick:function(e){e.stopPropagation();selectFile(file.path);}},
+        return React.createElement('div',{key:file.path,'data-code-card':file.path,className:'code-card'+(isPrimary?' primary':' linked'),onClick:function(){if(selected&&selected.path!==file.path)selectFile(file.path);}},
+            React.createElement('div',{className:'code-card-head',onPointerDown:function(e){beginCodeCardDrag(e,file);}},
                 React.createElement('div',null,
                     React.createElement('div',{className:'code-card-name'},file.name),
                     React.createElement('div',{className:'code-card-path'},file.path)
@@ -9571,55 +9741,18 @@ function App(){
         );
     }
     function renderCodeView(){
-        var primary=codeViewFiles[0]||null;
-        var linked=codeViewFiles.slice(1);
-        return React.createElement('div',{className:'code-split'},
-            React.createElement('div',{className:'code-split-graph',style:{flexBasis:(100-codePanePercent)+'%'}},
-                React.createElement('svg',{ref:svgRef})
+        var primaryPath=selected&&selected.path;
+        return React.createElement('div',{className:'code-canvas'},
+            React.createElement('svg',{ref:svgRef}),
+            React.createElement('div',{className:'code-canvas-cards',ref:codeCardsLayerRef},
+                codeViewFiles.map(function(file){return renderCodeFileCard(file,file.path===primaryPath);})
             ),
-            React.createElement('div',{className:'code-split-resize',onPointerDown:function(e){
-                if(e.pointerType==='mouse'&&e.button!==0)return;
-                e.preventDefault();
-                var handle=e.currentTarget;
-                var wrap=handle.parentNode;
-                var stacked=codeSplitIsStacked(wrap);
-                handle.classList.add('active');
-                try{if(handle.setPointerCapture)handle.setPointerCapture(e.pointerId);}catch(err){}
-                function onMove(ev){
-                    if(!wrap)return;
-                    setCodePanePercent(codeSplitPanePercent(wrap.getBoundingClientRect(),ev,stacked));
-                }
-                function onUp(){
-                    handle.classList.remove('active');
-                    window.removeEventListener('pointermove',onMove);
-                    window.removeEventListener('pointerup',onUp);
-                    window.removeEventListener('pointercancel',onUp);
-                }
-                window.addEventListener('pointermove',onMove);
-                window.addEventListener('pointerup',onUp);
-                window.addEventListener('pointercancel',onUp);
-            }}),
-            React.createElement('div',{className:'code-split-pane',style:{flexBasis:codePanePercent+'%'}},
-                React.createElement('div',{className:'code-split-head'},
-                    React.createElement('div',{className:'code-split-title'},'Code'),
-                    React.createElement('div',{className:'code-split-hint'},selected?'Click a symbol to highlight it across these files':'Click a node to read it next to the graph')
-                ),
+            React.createElement('div',{className:'code-canvas-hud'},
+                React.createElement('div',{className:'code-canvas-hint'},selected?'Click a symbol to highlight it across these cards':'Click a node to open its file as a card on the canvas. Connected files open with it.'),
                 codeViewSymbols.length>0&&React.createElement('div',{className:'code-sym-row'},
                     codeViewSymbols.slice(0,24).map(function(sym){
                         return React.createElement('button',{key:sym.name,className:'code-sym-chip '+sym.kind+(activeSymbol===sym.name?' active':''),onClick:function(){setActiveSymbol(function(prev){return prev===sym.name?null:sym.name;});}},sym.name);
                     })
-                ),
-                React.createElement('div',{className:'code-file-tabs'},
-                    codeViewFiles.map(function(file,idx){
-                        return React.createElement('button',{key:file.path,className:'code-file-tab'+(primary&&file.path===primary.path?' active':'')+(idx>0?' connected':''),onClick:function(){selectFile(file.path);}},file.name);
-                    })
-                ),
-                React.createElement('div',{className:'code-cards'},
-                    primary?renderCodeFileCard(primary,true):React.createElement('div',{className:'empty-state'},
-                        React.createElement('div',{className:'empty-title'},'Select a file'),
-                        React.createElement('div',{className:'empty-desc'},'Click a node on the map to read its code and connected files.')
-                    ),
-                    linked.map(function(file){return renderCodeFileCard(file,false);})
                 )
             )
         );

@@ -35,7 +35,7 @@ Paste URL / Select Files -> See Architecture -> Make Better Decisions
 ## Features
 
 ### Interactive Dependency Graph
-See how your files connect at a glance. Click any node to highlight its dependencies. Drag, zoom, and explore. The **Code** view keeps that map and shows the selected file plus its connected files beside it.
+See how your files connect at a glance. Click any node to highlight its dependencies. Drag, zoom, and explore. The **Code** view keeps that map and opens the selected file plus its connected files as cards on the canvas.
 
 ### Blast Radius Analysis
 *"If I change this file, what breaks?"* — CodeFlow answers this instantly. Select any file and see exactly how many files would be affected by changes.
@@ -257,7 +257,7 @@ strings and Pascal comment forms; unsupported language features fall back gracef
 | **Layer** | Color by architectural layer (UI, Services, Utils, etc.) |
 | **Churn** | Color by commit frequency (hot spots) |
 | **Blast** | Color by impact when a file is selected |
-| **Code** | Same graph, with file source and cross-file symbol highlights beside it |
+| **Code** | Same graph, with selected and connected files as cards on the canvas |
 
 ---
 

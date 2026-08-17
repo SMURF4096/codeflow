@@ -73,8 +73,55 @@ test('visible code files prefer the selection and its neighbors', () => {
     ],
     connections: [{ source: 'a.js', target: 'b.js', fn: 'a' }]
   };
-  const visible = context.collectVisibleCodeFiles('a.js', data, 'src', 4);
+  const visible = context.collectVisibleCodeFiles('a.js', data, 'src');
   assert.deepEqual(J(visible).map((f) => f.path), ['a.js', 'b.js']);
+});
+
+test('visible code files are not capped at four', () => {
+  const files = ['a.js', 'b.js', 'c.js', 'd.js', 'e.js', 'f.js'].map((name) => ({
+    path: name,
+    folder: 'src',
+    name,
+    content: '',
+    functions: []
+  }));
+  const connections = files.slice(1).map((file) => ({ source: 'a.js', target: file.path, fn: 'a' }));
+  const visible = context.collectVisibleCodeFiles('a.js', { files, connections }, 'src');
+  assert.deepEqual(J(visible).map((f) => f.path), ['a.js', 'b.js', 'c.js', 'd.js', 'e.js', 'f.js']);
+  assert.equal(context.collectVisibleCodeFiles(null, { files, connections }, 'src').length, 0);
+});
+
+test('code cards sit on the canvas transform, not a split pane', () => {
+  assert.deepEqual(J(context.codeCardSize(false)), { width: 320, height: 220 });
+  assert.ok(context.codeCardCollisionRadius(true) > 100);
+  assert.equal(context.codeCanvasTransformStyle({ k: 0.5, x: 10, y: 20 }), 'translate(10px,20px) scale(0.5)');
+  assert.deepEqual(J(context.codeCardAnchorStyle({ x: 400, y: 300 }, { width: 320, height: 220 })), {
+    visibility: 'visible',
+    left: '240px',
+    top: '190px'
+  });
+  const title = { style: {} };
+  const card = {
+    getAttribute(name) { return name === 'data-code-card' ? 'a.js' : null; },
+    style: {},
+    querySelector() { return title; }
+  };
+  const layer = {
+    style: {},
+    querySelectorAll() { return [card]; }
+  };
+  const placed = context.applyCodeCardLayout(layer, { 'a.js': { x: 400, y: 300 } }, { k: 0.5, x: 12, y: 8 }, 'a.js');
+  assert.equal(placed.placed, 1);
+  assert.equal(placed.titleScale, 2);
+  assert.equal(layer.style.transform, 'translate(12px,8px) scale(0.5)');
+  assert.equal(card.style.left, '210px');
+  assert.equal(title.style.transform, 'scale(2)');
+});
+
+test('recent delete requires a second confirm click', () => {
+  assert.deepEqual(J(context.armRecentDelete(null, 'github:owner/repo')), { confirm: false, armedId: 'github:owner/repo' });
+  assert.deepEqual(J(context.armRecentDelete('github:owner/repo', 'github:owner/repo')), { confirm: true, armedId: null });
+  assert.deepEqual(J(context.armRecentDelete('github:owner/repo', 'zip:other')), { confirm: false, armedId: 'zip:other' });
 });
 
 test('cache keys and records stay stable', () => {
@@ -228,13 +275,6 @@ test('empty source files count as loaded after hydration', () => {
   assert.equal(context.fileSourceDisplayState(merged.files[0], true), 'ready');
 });
 
-test('code split percent uses the stacked axis', () => {
-  const rect = { width: 1000, height: 800, right: 1000, bottom: 800 };
-  assert.equal(context.codeSplitPanePercent(rect, { clientX: 400, clientY: 200 }, false), 60);
-  assert.equal(context.codeSplitPanePercent(rect, { clientX: 400, clientY: 200 }, true), 72);
-  assert.equal(context.codeSplitPanePercent(rect, { clientX: 900, clientY: 600 }, true), 28);
-});
-
 test('empty code cards always render from an array of lines', () => {
   assert.deepEqual(J(context.asCodeLines('')), ['']);
   assert.deepEqual(J(context.asCodeLines(null)), ['']);
@@ -254,10 +294,15 @@ test('HTML attribute sanitizer encodes quotes before they reach data-sym', () =>
 test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /value:'code'/);
   assert.match(htmlSource, /function renderCodeView\(/);
-  assert.match(htmlSource, /className:'code-split'/);
+  assert.match(htmlSource, /className:'code-canvas'/);
+  assert.doesNotMatch(htmlSource, /className:'code-split'/);
+  assert.match(htmlSource, /data-code-card/);
+  assert.match(htmlSource, /applyCodeCardLayout/);
   assert.match(htmlSource, /vizType==='code'/);
   assert.match(htmlSource, /readableLabelScale/);
   assert.match(htmlSource, /listRecentAnalyses/);
+  assert.match(htmlSource, /armRecentDelete/);
+  assert.match(htmlSource, /Confirm\?/);
   assert.match(htmlSource, /__codeflow\/status/);
   assert.match(htmlSource, /analyzeFromCli\(false,status\)/);
   assert.match(htmlSource, /retainedFolderMatchesRecord/);
@@ -269,7 +314,6 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /zipArchiveCacheMeta/);
   assert.match(htmlSource, /compactAnalysisForCache/);
   assert.match(htmlSource, /fileHasLoadedSource/);
-  assert.match(htmlSource, /codeSplitPanePercent/);
   assert.match(htmlSource, /onPointerDown/);
   assert.match(htmlSource, /__codeflow\/file\?path=/);
   assert.match(htmlSource, /The folder picker is faster when the API is rate-limited/);
