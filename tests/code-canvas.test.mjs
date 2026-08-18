@@ -155,18 +155,94 @@ test('a drag does not select the card on the leftover click', () => {
   assert.deepEqual(J(context.consumeCodeCardClick(false)), { ignore: false, ignoreNextClick: false });
 });
 
-test('code cards size to the file instead of a fixed pane', () => {
+test('code cards use a uniform width and grow with line count', () => {
   const empty = context.codeCardSize(null);
-  assert.equal(empty.width, context.CODE_CARD_MIN_WIDTH);
+  assert.equal(empty.width, context.CODE_CARD_WIDTH);
   assert.equal(empty.height, context.CODE_CARD_MIN_HEIGHT);
   assert.equal(empty.clipped, false);
   const short = context.codeCardSize({ content: 'const x = 1;\n' });
   const tall = context.codeCardSize({ content: Array(40).fill('const value = 1;').join('\n') });
+  assert.equal(short.width, context.CODE_CARD_WIDTH);
+  assert.equal(tall.width, context.CODE_CARD_WIDTH);
   assert.ok(tall.height > short.height);
   const huge = context.codeCardSize({ content: Array(400).fill('x'.repeat(120)).join('\n') });
-  assert.equal(huge.width, context.CODE_CARD_MAX_WIDTH);
+  assert.equal(huge.width, context.CODE_CARD_WIDTH);
   assert.equal(huge.height, context.CODE_CARD_MAX_HEIGHT);
   assert.equal(huge.clipped, true);
+});
+
+test('opened code paths append without reshuffling the set', () => {
+  assert.deepEqual(J(context.openCodeCardPaths(['a.js'], 'b.js')), ['a.js', 'b.js']);
+  assert.deepEqual(J(context.openCodeCardPaths(['a.js', 'b.js'], 'a.js')), ['a.js', 'b.js']);
+  const capped = Array.from({ length: context.CODE_CARD_MAX }, (_, i) => 'f' + i + '.js');
+  assert.deepEqual(J(context.openCodeCardPaths(capped, 'extra.js')), capped);
+});
+
+test('opened code files ignore the current selection', () => {
+  const data = {
+    files: [
+      { path: 'a.js', folder: 'src' },
+      { path: 'b.js', folder: 'src' },
+      { path: 'c.js', folder: 'lib' }
+    ]
+  };
+  const opened = context.filesForOpenedCodePaths(['a.js', 'c.js'], data, null);
+  assert.deepEqual(J(opened).map((f) => f.path), ['a.js', 'c.js']);
+  const still = context.filesForOpenedCodePaths(['a.js', 'c.js'], data, null);
+  assert.deepEqual(J(still).map((f) => f.path), ['a.js', 'c.js']);
+});
+
+test('appending a code card keeps existing cards in place', () => {
+  const a = { path: 'src/a.js', folder: 'src' };
+  const b = { path: 'src/b.js', folder: 'src' };
+  const c = { path: 'lib/c.js', folder: 'lib' };
+  const size = { width: 440, height: 200 };
+  const opts = { originX: 80, originY: 72, gapX: 88, gapY: 36 };
+  let placed = context.appendCodeCardPlacement({}, a, size, opts);
+  const first = J(placed['src/a.js']);
+  placed = context.appendCodeCardPlacement(placed, b, size, opts);
+  assert.deepEqual(J(placed['src/a.js']), first);
+  assert.equal(placed['src/b.js'].left, first.left);
+  assert.ok(placed['src/b.js'].top >= first.top + first.height);
+  const beforeLib = J(placed['src/a.js']);
+  const beforeB = J(placed['src/b.js']);
+  placed = context.appendCodeCardPlacement(placed, c, size, opts);
+  assert.deepEqual(J(placed['src/a.js']), beforeLib);
+  assert.deepEqual(J(placed['src/b.js']), beforeB);
+  assert.ok(placed['lib/c.js'].left >= beforeLib.left + beforeLib.width);
+  assert.equal(placed['lib/c.js'].top, opts.originY);
+  const grown = context.appendCodeCardPlacement(placed, a, { width: 440, height: 400 }, opts);
+  assert.equal(grown['src/a.js'].left, first.left);
+  assert.equal(grown['src/a.js'].top, first.top);
+  assert.equal(grown['src/b.js'].top, beforeB.top);
+});
+
+test('line-level code edges use bezier anchors, not card centers', () => {
+  const file = {
+    path: 'src/a.js',
+    content: 'export function shared(){}\n',
+    functions: [{ name: 'shared', line: 1, isExported: true }]
+  };
+  assert.equal(context.codeCardSymbolLine(file, 'shared'), 1);
+  const d = context.codeEdgeBezier(0, 10, 200, 40);
+  assert.match(d, /^M0,10C/);
+  assert.match(d, / 200,40$/);
+  const src = { id: 'src/a.js', x: 220, y: 200 };
+  const tgt = { id: 'src/b.js', x: 800, y: 240 };
+  const sizes = {
+    'src/a.js': { width: 440, height: 200 },
+    'src/b.js': { width: 440, height: 200 }
+  };
+  const files = {
+    'src/a.js': file,
+    'src/b.js': { path: 'src/b.js', content: 'import { shared } from "./a.js";\n', functions: [] }
+  };
+  const cards = new Set(['src/a.js', 'src/b.js']);
+  const path = context.codeCardLinkPath({ source: src, target: tgt, fn: 'shared' }, sizes, files, cards);
+  assert.match(path, /^M/);
+  assert.ok(!path.includes(String(src.x) + ',' + String(src.y)));
+  assert.equal(context.codeViewWheelAction({ ctrlKey: true }), 'zoom');
+  assert.equal(context.codeViewWheelAction({}), 'pan');
 });
 
 test('opened code cards auto-align by directory', () => {
@@ -435,6 +511,12 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /data-code-card/);
   assert.match(htmlSource, /applyCodeCardLayout/);
   assert.match(htmlSource, /layoutCodeCardsByFolder/);
+  assert.match(htmlSource, /appendCodeCardPlacement/);
+  assert.match(htmlSource, /openCodeCardPaths/);
+  assert.match(htmlSource, /filesForOpenedCodePaths/);
+  assert.match(htmlSource, /applyOpenedCardPlacements/);
+  assert.match(htmlSource, /codeCardLinkPath/);
+  assert.match(htmlSource, /code-line-pill/);
   assert.match(htmlSource, /defaultCodeViewSeed/);
   assert.match(htmlSource, /shouldFitCodeCamera/);
   assert.match(htmlSource, /codeViewCameraReadyRef/);
@@ -447,7 +529,10 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /className:'code-sym-list'/);
   assert.doesNotMatch(htmlSource, /className:'code-sym-row'/);
   assert.match(htmlSource, /CODE_CARD_MAX/);
+  assert.match(htmlSource, /CODE_CARD_WIDTH/);
   assert.match(htmlSource, /consumeCodeCardClick/);
+  assert.match(htmlSource, /Open cards stay put/);
+  assert.doesNotMatch(htmlSource, /shift the set/);
   assert.match(htmlSource, /vizType==='code'/);
   assert.match(htmlSource, /readableLabelScale/);
   assert.match(htmlSource, /listRecentAnalyses/);

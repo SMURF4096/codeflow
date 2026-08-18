@@ -482,7 +482,9 @@ body{font-family:'JetBrains Mono',monospace;background:var(--bg0);color:var(--t0
 .code-sym-chip.import{box-shadow:inset 3px 0 0 #c678dd}
 .code-sym-chip.export{box-shadow:inset 3px 0 0 #98c379}
 .code-sym-chip.var{box-shadow:inset 3px 0 0 #e06c75}
-.code-card{position:absolute;border:1px solid var(--border);border-radius:8px;background:var(--bg0);overflow:hidden;display:flex;flex-direction:column;pointer-events:auto;box-shadow:0 10px 28px rgba(0,0,0,0.28);visibility:hidden;user-select:none}
+.code-card{position:absolute;border:1px solid var(--border);border-radius:8px;background:var(--bg0);overflow:visible;display:flex;flex-direction:column;pointer-events:auto;box-shadow:0 10px 28px rgba(0,0,0,0.28);visibility:hidden;user-select:none}
+.code-line-pill{position:absolute;left:100%;margin-left:8px;transform:translateY(-50%);z-index:2;font-size:8px;line-height:14px;padding:0 6px;border-radius:8px;border:1px solid var(--border);background:var(--bg1);color:var(--t1);white-space:nowrap;cursor:pointer;font-family:inherit}
+.code-line-pill:hover,.code-line-pill.active{border-color:var(--acc);color:var(--acc);background:var(--accbg)}
 .code-card.primary{border-color:var(--acc);box-shadow:0 12px 32px rgba(0,0,0,0.34),0 0 0 1px var(--acc)}
 .code-card.linked{opacity:0.98}
 .code-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;background:var(--bg2);border-bottom:1px solid var(--border2);cursor:grab;touch-action:none;flex-shrink:0}
@@ -492,6 +494,11 @@ body{font-family:'JetBrains Mono',monospace;background:var(--bg0);color:var(--t0
 .code-card-body{flex:1;overflow:hidden;min-height:0;user-select:text}
 .code-card.clipped .code-card-body{overflow:auto;touch-action:pan-y}
 .code-card-body .file-preview-code{padding:8px 0;font-size:11px}
+.code-card.code-far .code-card-body{overflow:hidden}
+.code-card.code-far .file-preview-linenum{display:none}
+.code-card.code-far .file-preview-line{min-height:3px;height:3px;overflow:hidden}
+.code-card.code-far .file-preview-text{font-size:3px;line-height:3px;letter-spacing:-0.5px}
+.code-card.code-far .code-line-pill{display:none}
 .has-code-card{display:none!important}
 .has-code-card .nc,.has-code-card .node-label{pointer-events:none}
 .sym-mark{border-radius:3px;padding:0 1px;cursor:pointer}
@@ -5865,9 +5872,11 @@ function codeCardContentMetrics(file){
     return{lines:Math.max(1,lines.length),maxLineChars:maxLineChars};
 }
 
+var CODE_CARD_WIDTH=440;
+
 function codeCardSize(file){
     var metrics=codeCardContentMetrics(file);
-    var width=Math.max(CODE_CARD_MIN_WIDTH,Math.min(CODE_CARD_MAX_WIDTH,CODE_CARD_GUTTER+metrics.maxLineChars*CODE_CARD_CHAR_WIDTH));
+    var width=CODE_CARD_WIDTH;
     var naturalHeight=CODE_CARD_HEAD_HEIGHT+CODE_CARD_BODY_PAD+metrics.lines*CODE_CARD_LINE_HEIGHT;
     var height=Math.max(CODE_CARD_MIN_HEIGHT,Math.min(CODE_CARD_MAX_HEIGHT,naturalHeight));
     return{width:width,height:height,clipped:naturalHeight>CODE_CARD_MAX_HEIGHT};
@@ -5935,6 +5944,150 @@ function layoutCodeCardsByFolder(files,sizesByPath,options){
         rowH=Math.max(rowH,groupH);
     });
     return placed;
+}
+
+function openCodeCardPaths(prev,path,limit){
+    var list=(prev||[]).slice();
+    if(!path)return list;
+    if(list.indexOf(path)>=0)return list;
+    var max=limit==null?CODE_CARD_MAX:Number(limit);
+    if(isFinite(max)&&list.length>=max)return list;
+    list.push(path);
+    return list;
+}
+
+function filesForOpenedCodePaths(paths,data,folderFilter){
+    if(!data||!data.files)return[];
+    var filtered=folderFilter?data.files.filter(function(f){return f.folder===folderFilter||f.folder.startsWith(folderFilter+'/');}):data.files;
+    var byPath=Object.create(null);
+    filtered.forEach(function(file){byPath[file.path]=file;});
+    return(paths||[]).map(function(path){return byPath[path];}).filter(Boolean);
+}
+
+function appendCodeCardPlacement(placements,file,size,options){
+    options=options||{};
+    var gapX=options.gapX==null?88:options.gapX;
+    var gapY=options.gapY==null?36:options.gapY;
+    var originX=options.originX==null?80:options.originX;
+    var originY=options.originY==null?72:options.originY;
+    var next=Object.assign(Object.create(null),placements||{});
+    if(!file||!file.path)return next;
+    size=size||codeCardSize(file);
+    var folder=file.folder||'root';
+    var prev=next[file.path];
+    if(prev){
+        next[file.path]={
+            left:prev.left,
+            top:prev.top,
+            x:prev.left+size.width/2,
+            y:prev.top+size.height/2,
+            width:size.width,
+            height:size.height,
+            folder:prev.folder||folder
+        };
+        return next;
+    }
+    var same=[];
+    var folderLeft=null;
+    Object.keys(next).forEach(function(id){
+        var item=next[id];
+        if(!item||item.folder!==folder)return;
+        same.push(item);
+        folderLeft=folderLeft==null?item.left:Math.min(folderLeft,item.left);
+    });
+    var left,top;
+    if(!same.length){
+        var maxRight=originX;
+        Object.keys(next).forEach(function(id){
+            var item=next[id];
+            if(!item)return;
+            maxRight=Math.max(maxRight,item.left+item.width+gapX);
+        });
+        left=Object.keys(next).length?maxRight:originX;
+        top=originY;
+    }else{
+        left=folderLeft;
+        var maxBottom=originY;
+        same.forEach(function(item){maxBottom=Math.max(maxBottom,item.top+item.height+gapY);});
+        top=maxBottom;
+    }
+    next[file.path]={
+        left:left,
+        top:top,
+        x:left+size.width/2,
+        y:top+size.height/2,
+        width:size.width,
+        height:size.height,
+        folder:folder
+    };
+    return next;
+}
+
+function codeCardSymbolLine(file,name){
+    if(!file||!name)return null;
+    var fns=file.functions||[];
+    var i;
+    for(i=0;i<fns.length;i++){
+        if(fns[i]&&fns[i].name===name&&fns[i].line)return fns[i].line;
+    }
+    var content=String(file.content||'');
+    if(!content)return null;
+    var escaped=String(name).replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    var re=new RegExp('(?:^|[^A-Za-z0-9_$])'+escaped+'(?:[^A-Za-z0-9_$]|$)');
+    var lines=content.split('\n');
+    for(i=0;i<lines.length;i++){
+        if(re.test(lines[i]))return i+1;
+    }
+    return null;
+}
+
+function codeCardLineY(size,line){
+    var n=Math.max(1,Number(line)||1);
+    return CODE_CARD_HEAD_HEIGHT+8+(n-0.5)*CODE_CARD_LINE_HEIGHT;
+}
+
+function codeEdgeBezier(x1,y1,x2,y2){
+    var dx=Math.max(80,Math.abs(x2-x1)*0.45);
+    return 'M'+x1+','+y1+'C'+(x1+dx)+','+y1+' '+(x2-dx)+','+y2+' '+x2+','+y2;
+}
+
+function layoutOpenedCodeCards(files,prev,sizesByPath,options){
+    var placements=Object.assign(Object.create(null),prev||{});
+    (files||[]).forEach(function(file){
+        placements=appendCodeCardPlacement(placements,file,sizesByPath&&file?sizesByPath[file.path]:null,options);
+    });
+    return placements;
+}
+
+function codeViewWheelAction(event){
+    if(event&&(event.ctrlKey||event.metaKey))return 'zoom';
+    return 'pan';
+}
+
+function codeCardAnchorY(node,size,line){
+    size=size||codeCardSize(null);
+    var y=line?codeCardLineY(size,line):CODE_CARD_HEAD_HEIGHT+(size.height-CODE_CARD_HEAD_HEIGHT)/2;
+    if(!isFinite(y))y=size.height/2;
+    y=Math.max(CODE_CARD_HEAD_HEIGHT+6,Math.min(size.height-8,y));
+    return (node&&isFinite(node.y)?node.y:0)-size.height/2+y;
+}
+
+function codeCardLinkPath(link,sizesByPath,filesByPath,cardPaths){
+    var src=link&&link.source;
+    var tgt=link&&link.target;
+    if(!src||!tgt||typeof src!=='object'||typeof tgt!=='object')return null;
+    if(!cardPaths||!cardPaths.has(src.id)||!cardPaths.has(tgt.id))return null;
+    if(!isFinite(src.x)||!isFinite(src.y)||!isFinite(tgt.x)||!isFinite(tgt.y))return null;
+    var srcFile=filesByPath&&filesByPath[src.id];
+    var tgtFile=filesByPath&&filesByPath[tgt.id];
+    var srcSize=(sizesByPath&&sizesByPath[src.id])||codeCardSize(srcFile);
+    var tgtSize=(sizesByPath&&sizesByPath[tgt.id])||codeCardSize(tgtFile);
+    var fn=link.fn;
+    var x1=src.x+srcSize.width/2;
+    var x2=tgt.x-tgtSize.width/2;
+    var y1=codeCardAnchorY(src,srcSize,fn?codeCardSymbolLine(srcFile,fn):null);
+    var y2=codeCardAnchorY(tgt,tgtSize,fn?codeCardSymbolLine(tgtFile,fn):null);
+    return codeEdgeBezier(x1,y1,x2,y2);
 }
 
 function codeFolderCardBounds(nodes,sizesByPath,pad){
@@ -6055,6 +6208,10 @@ function applyCodeCardLayout(layer,nodesById,transform,sizesByPath){
         }
         var title=card.querySelector?card.querySelector('.code-card-name'):null;
         if(title)title.style.transform='scale('+titleScale+')';
+        if(card.classList){
+            if(k<0.22&&card.classList.add)card.classList.add('code-far');
+            else if(card.classList.remove)card.classList.remove('code-far');
+        }
         if(style.visibility==='visible')placed++;
     });
     return{placed:placed,titleScale:titleScale};
@@ -6119,6 +6276,15 @@ function extractFileSymbols(file,connections){
         if(file&&(src===file.path||tgt===file.path)&&c.fn)add(c.fn,'fn');
     });
     return symbols;
+}
+
+function codeCardSymbolPills(file,connections){
+    var size=codeCardSize(file);
+    return extractFileSymbols(file,connections).map(function(sym){
+        var line=codeCardSymbolLine(file,sym.name);
+        if(!line)return null;
+        return{name:sym.name,kind:sym.kind,line:line,top:codeCardLineY(size,line)};
+    }).filter(Boolean);
 }
 
 function collectCrossFileSymbols(files,connections){
@@ -6835,6 +7001,13 @@ function App(){
     var codeViewCameraReadyRef=useRef(false);
     var codeViewSceneRef=useRef('');
     var codeCardIgnoreClickRef=useRef(false);
+    var codeCardPlacementRef=useRef(Object.create(null));
+    var openedSceneRef=useRef('');
+    var pendingFlyToRef=useRef(null);
+    var openCodeFileRef=useRef(null);
+    var codeFilesByPathRef=useRef(Object.create(null));
+    var codeCanvasRef=useRef(null);
+    var _openedCards=useState([]),openedCodePaths=_openedCards[0],setOpenedCodePaths=_openedCards[1];
     var pendingRecentDeleteTimerRef=useRef(null);
     var zipInputRef=useRef(null);
     var zipArchiveRef=useRef(null);
@@ -8074,10 +8247,17 @@ function App(){
                 setOwnerLoading(false);
                 setOwnership([]);
             }
-            updateGraphHighlight(path,blast);
+            if(graphConfig.vizType!=='code')updateGraphHighlight(path,blast);
         }
-    },[data,repoInfo,localSourceKind,isMobile]);
+    },[data,repoInfo,localSourceKind,isMobile,graphConfig.vizType]);
     selectFileRef.current=selectFile;
+    function openCodeFile(path){
+        var isNew=openedCodePaths.indexOf(path)<0;
+        setOpenedCodePaths(function(prev){return openCodeCardPaths(prev,path);});
+        if(isNew)pendingFlyToRef.current=path;
+        selectFile(path);
+    }
+    openCodeFileRef.current=openCodeFile;
 
     function updateGraphHighlight(path,blast){
         if(!nodesRef.current||!linksRef.current)return;
@@ -8270,24 +8450,59 @@ function App(){
     },[data,folderFilter,colorMode,theme,graphConfig]);
     var codeViewFiles=useMemo(function(){
         if(!data)return[];
-        return collectVisibleCodeFiles(selected&&selected.path,data,folderFilter);
-    },[data,selected,folderFilter]);
+        var paths=openedCodePaths;
+        if((!paths||!paths.length)&&graphConfig.vizType==='code'){
+            var seed=defaultCodeViewSeed(data,folderFilter);
+            if(seed)paths=[seed];
+        }
+        return filesForOpenedCodePaths(paths,data,folderFilter);
+    },[data,openedCodePaths,folderFilter,graphConfig.vizType]);
     useEffect(function(){
-        if(graphConfig.vizType!=='code'||!data||selected)return;
+        var scene=graphStructureKey(data,folderFilter);
+        if(scene===openedSceneRef.current)return;
+        openedSceneRef.current=scene;
+        codeCardPlacementRef.current=Object.create(null);
+        setOpenedCodePaths([]);
+        pendingFlyToRef.current=null;
+    },[data,folderFilter]);
+    useEffect(function(){
+        if(graphConfig.vizType!=='code'||!data)return;
+        if(openedCodePaths.length)return;
         var seed=defaultCodeViewSeed(data,folderFilter);
-        if(seed&&selectFileRef.current)selectFileRef.current(seed);
-    },[graphConfig.vizType,data,folderFilter,selected]);
+        if(!seed)return;
+        setOpenedCodePaths([seed]);
+        if(selectFileRef.current)selectFileRef.current(seed);
+    },[graphConfig.vizType,data,folderFilter,openedCodePaths.length]);
+    useEffect(function(){
+        var el=codeCanvasRef.current;
+        if(!el||graphConfig.vizType!=='code')return;
+        function onWheel(e){
+            if(!zoomRef.current||!svgRef.current)return;
+            if(e.target&&e.target.closest&&e.target.closest('.code-card.clipped .code-card-body'))return;
+            var action=codeViewWheelAction(e);
+            e.preventDefault();
+            var svg=d3.select(svgRef.current);
+            if(action==='zoom'){
+                var rect=svgRef.current.getBoundingClientRect();
+                var factor=e.deltaY<0?1.08:1/1.08;
+                zoomRef.current.scaleBy(svg,factor,[e.clientX-rect.left,e.clientY-rect.top]);
+                return;
+            }
+            zoomRef.current.translateBy(svg,-e.deltaX,-e.deltaY);
+        }
+        el.addEventListener('wheel',onWheel,{passive:false});
+        return function(){el.removeEventListener('wheel',onWheel);};
+    },[graphConfig.vizType]);
     var hadAnalysisRef=useRef(false);
     useEffect(function(){
         if(data&&!hadAnalysisRef.current)setLeftTab('overview');
         hadAnalysisRef.current=!!data;
     },[data]);
-    var codeViewFileTotal=useMemo(function(){
-        if(!data)return 0;
-        return countVisibleCodeFiles(selected&&selected.path,data,folderFilter);
-    },[data,selected,folderFilter]);
     selectedPathRef.current=selected&&selected.path;
     codeCardPathsRef.current=new Set(codeViewFiles.map(function(file){return file.path;}));
+    var filesByPath=Object.create(null);
+    if(data&&data.files)data.files.forEach(function(file){filesByPath[file.path]=file;});
+    codeFilesByPathRef.current=filesByPath;
 
     function currentCodeCardSizes(){
         var sizes=Object.create(null);
@@ -8300,47 +8515,80 @@ function App(){
         applyCodeCardLayout(codeCardsLayerRef.current,graphNodesByIdRef.current,codeZoomTransformRef.current,codeCardSizesRef.current);
     }
 
-    function pinCodeCardsToFolderLayout(onlyUnplaced){
+    function graphLinkPath(d){
+        if(graphConfig.vizType==='code'){
+            var cardPath=codeCardLinkPath(d,codeCardSizesRef.current,codeFilesByPathRef.current,codeCardPathsRef.current);
+            if(cardPath)return cardPath;
+        }
+        if(graphConfig.curvedLinks){
+            var dx=d.target.x-d.source.x,dy=d.target.y-d.source.y,dr=Math.sqrt(dx*dx+dy*dy);
+            return 'M'+d.source.x+','+d.source.y+'A'+dr+','+dr+' 0 0,1 '+d.target.x+','+d.target.y;
+        }
+        return 'M'+d.source.x+','+d.source.y+'L'+d.target.x+','+d.target.y;
+    }
+    function redrawGraphLinksAndNodes(){
+        if(nodesRef.current)nodesRef.current.attr('transform',function(d){return'translate('+d.x+','+d.y+')';});
+        if(linksRef.current)linksRef.current.attr('d',graphLinkPath);
+    }
+    function flyToOpenedCodeCard(place){
+        if(!svgRef.current||!zoomRef.current||!place||!isFinite(place.x)||!isFinite(place.y))return;
+        var w=svgRef.current.clientWidth||800;
+        var h=svgRef.current.clientHeight||600;
+        var t=snapshotZoomTransform(codeZoomTransformRef.current);
+        var next=d3.zoomIdentity.translate(w/2-place.x*t.k,h/2-place.y*t.k).scale(t.k);
+        d3.select(svgRef.current).transition().duration(260).call(zoomRef.current.transform,next);
+    }
+    function applyOpenedCardPlacements(opts){
+        opts=opts||{};
         var sim=simRef.current;
-        if(!sim)return;
+        if(!sim||graphConfig.vizType!=='code')return;
         var sizes=currentCodeCardSizes();
-        var layout=layoutCodeCardsByFolder(codeViewFiles,sizes);
+        var placements=codeCardPlacementRef.current||Object.create(null);
+        codeViewFiles.forEach(function(file){
+            if(codeCardUserPinnedRef.current.has(file.path)&&placements[file.path]){
+                var live=graphNodesByIdRef.current[file.path];
+                var size=sizes[file.path]||codeCardSize(file);
+                if(live&&isFinite(live.fx)&&isFinite(live.fy)){
+                    placements[file.path]={
+                        left:live.fx-size.width/2,
+                        top:live.fy-size.height/2,
+                        x:live.fx,
+                        y:live.fy,
+                        width:size.width,
+                        height:size.height,
+                        folder:file.folder||placements[file.path].folder||'root'
+                    };
+                    return;
+                }
+            }
+            placements=appendCodeCardPlacement(placements,file,sizes[file.path]||codeCardSize(file));
+        });
+        var keep=Object.create(null);
+        codeViewFiles.forEach(function(file){keep[file.path]=true;});
+        Object.keys(placements).forEach(function(path){if(!keep[path])delete placements[path];});
+        codeCardPlacementRef.current=placements;
         sim.nodes().forEach(function(node){
-            var pos=layout[node.id];
-            if(!pos){
-                if(!onlyUnplaced&&!codeCardUserPinnedRef.current.has(node.id)){node.fx=null;node.fy=null;}
+            var pos=placements[node.id];
+            if(!pos)return;
+            if(codeCardUserPinnedRef.current.has(node.id)&&isFinite(node.fx)&&isFinite(node.fy)){
+                node.x=node.fx;node.y=node.fy;
                 return;
             }
-            if(codeCardUserPinnedRef.current.has(node.id))return;
-            if(onlyUnplaced&&isFinite(node.fx)&&isFinite(node.fy))return;
             node.fx=pos.x;node.fy=pos.y;node.x=pos.x;node.y=pos.y;
         });
-    }
-    function freezeNewCodeCardsInPlace(){
-        var sim=simRef.current;
-        if(!sim)return;
-        sim.nodes().forEach(function(node){
-            if(!codeCardPathsRef.current.has(node.id))return;
-            if(isFinite(node.fx)&&isFinite(node.fy))return;
-            if(!isFinite(node.x)||!isFinite(node.y))return;
-            node.fx=node.x;node.fy=node.y;
-        });
+        var flyPath=pendingFlyToRef.current;
+        if(flyPath&&codeViewCameraReadyRef.current&&!opts.skipFly){
+            var place=placements[flyPath];
+            if(place)flyToOpenedCodeCard(place);
+            pendingFlyToRef.current=null;
+        }
     }
     function placeRemainingCodeNodes(){
         var sim=simRef.current;
         if(!sim)return;
         unburyNodesFromCards(sim.nodes(),codeCardPathsRef.current,codeCardSizesRef.current);
         refreshCodeCardForces();
-        if(nodesRef.current){
-            nodesRef.current.attr('transform',function(d){return'translate('+d.x+','+d.y+')';});
-        }
-        if(linksRef.current){
-            if(graphConfig.curvedLinks){
-                linksRef.current.attr('d',function(d){var dx=d.target.x-d.source.x,dy=d.target.y-d.source.y,dr=Math.sqrt(dx*dx+dy*dy);return'M'+d.source.x+','+d.source.y+'A'+dr+','+dr+' 0 0,1 '+d.target.x+','+d.target.y;});
-            }else{
-                linksRef.current.attr('d',function(d){return'M'+d.source.x+','+d.source.y+'L'+d.target.x+','+d.target.y;});
-            }
-        }
+        redrawGraphLinksAndNodes();
     }
 
     function refreshCodeCardForces(){
@@ -8403,8 +8651,9 @@ function App(){
             if(!fileIds.has(c.source)||!fileIds.has(c.target))return;
             if(c.source===c.target)return;// Skip self-links
             var k=c.source+'|'+c.target;
-            if(!linkMap.has(k))linkMap.set(k,{source:c.source,target:c.target,count:0});
+            if(!linkMap.has(k))linkMap.set(k,{source:c.source,target:c.target,count:0,fn:c.fn||null});
             linkMap.get(k).count+=c.count;
+            if(!linkMap.get(k).fn&&c.fn)linkMap.get(k).fn=c.fn;
         });
         var links=Array.from(linkMap.values());
         function getR(d){return Math.max(8,Math.min(24,5+d.fnCount*0.8));}
@@ -8454,7 +8703,13 @@ function App(){
             });
             hullLayer.selectAll('text.hull-label').attr('font-size',(11*s)+'px');
         }
-        var zoom=d3.zoom().scaleExtent([keepReadable?0.08:0.2,5]).on('zoom',function(e){
+        var zoom=d3.zoom().scaleExtent([keepReadable?0.08:0.2,5]).filter(function(event){
+            if(keepReadable){
+                if(event.type==='wheel')return false;
+                return !event.button;
+            }
+            return !event.ctrlKey&&!event.button;
+        }).on('zoom',function(e){
             container.attr('transform',e.transform);
             codeZoomTransformRef.current=e.transform;
             applyReadableLabels(e.transform.k);
@@ -8534,12 +8789,39 @@ function App(){
         linksRef.current=link;
         var node=nodeLayer.selectAll('g').data(nodes).join('g').style('cursor','pointer');
         nodesRef.current=node;
-        node.call(d3.drag().on('start',function(e,d){if(!e.active)sim.alphaTarget(0.1).restart();d.fx=d.x;d.fy=d.y;}).on('drag',function(e,d){d.fx=e.x;d.fy=e.y;}).on('end',function(e,d){if(!e.active)sim.alphaTarget(0);if(keepReadable){d.fx=d.x;d.fy=d.y;codeCardUserPinnedRef.current.add(d.id);}else{d.fx=null;d.fy=null;}}));
-        node.on('click',function(e,d){e.stopPropagation();if(selectFileRef.current)selectFileRef.current(d.id);});
+        node.call(d3.drag().on('start',function(e,d){
+            d.fx=d.x;d.fy=d.y;
+            if(keepReadable)return;
+            if(!e.active)sim.alphaTarget(0.1).restart();
+        }).on('drag',function(e,d){
+            d.fx=e.x;d.fy=e.y;d.x=e.x;d.y=e.y;
+            if(keepReadable)redrawGraphLinksAndNodes();
+        }).on('end',function(e,d){
+            if(!keepReadable){
+                if(!e.active)sim.alphaTarget(0);
+                d.fx=null;d.fy=null;
+                return;
+            }
+            d.fx=d.x;d.fy=d.y;
+            if(codeCardPathsRef.current.has(d.id))codeCardUserPinnedRef.current.add(d.id);
+        }));
+        node.on('click',function(e,d){
+            e.stopPropagation();
+            if(keepReadable&&openCodeFileRef.current)openCodeFileRef.current(d.id);
+            else if(selectFileRef.current)selectFileRef.current(d.id);
+        });
         node.classed('has-code-card',function(d){return keepReadable&&nodeReplacedByCard(d.id,codeCardPathsRef.current);});
         node.attr('display',function(d){return keepReadable&&nodeReplacedByCard(d.id,codeCardPathsRef.current)?'none':null;});
         node.on('mouseenter',function(e,d){if(keepReadable&&codeCardPathsRef.current.has(d.id))return;var r=svgRef.current.getBoundingClientRect();setTooltip({x:e.clientX-r.left+10,y:e.clientY-r.top,title:d.name,content:d.fnCount+' functions\n'+d.layer+' layer\n'+d.churn+' recent commits'});}).on('mouseleave',function(){setTooltip(null);});
-        svg.on('click',function(e){if(e.target===svgRef.current){if(keepReadable)return;setSelected(null);setBlastRadius(null);link.attr('stroke',theme==='light'?'#ccc':'#333').attr('stroke-opacity',0.4);node.selectAll('.nc').attr('opacity',1).attr('fill',getC);}});
+        svg.on('click',function(e){
+            if(e.target!==svgRef.current)return;
+            setSelected(null);
+            setBlastRadius(null);
+            setActiveSymbol(null);
+            if(keepReadable)return;
+            link.attr('stroke',theme==='light'?'#ccc':'#333').attr('stroke-opacity',0.4);
+            node.selectAll('.nc').attr('opacity',1).attr('fill',getC);
+        });
         node.append('circle').attr('class','nc').attr('r',getR).attr('fill',getC).attr('stroke',function(d){var c=d3.color(getC(d));return c?c.brighter(0.3):'#fff';}).attr('stroke-width',1.5);
         // Hide labels for large graphs to reduce DOM overhead. Code view keeps titles readable.
         if(keepReadable||!isLargeGraph||graphConfig.showLabels){
@@ -8581,11 +8863,7 @@ function App(){
         var hullInterval=isLargeGraph?5:1;
         var tickCount=0;
         sim.on('tick',function(){
-            if(graphConfig.curvedLinks){
-                link.attr('d',function(d){var dx=d.target.x-d.source.x,dy=d.target.y-d.source.y,dr=Math.sqrt(dx*dx+dy*dy);return'M'+d.source.x+','+d.source.y+'A'+dr+','+dr+' 0 0,1 '+d.target.x+','+d.target.y;});
-            }else{
-                link.attr('d',function(d){return'M'+d.source.x+','+d.source.y+'L'+d.target.x+','+d.target.y;});
-            }
+            link.attr('d',graphLinkPath);
             node.attr('transform',function(d){return'translate('+d.x+','+d.y+')';});
             if(keepReadable){
                 nodes.forEach(function(n){graphNodesByIdRef.current[n.id]=n;});
@@ -8596,9 +8874,7 @@ function App(){
         });
         node.selectAll('text').attr('opacity',(keepReadable||graphConfig.showLabels)?1:0);
         if(keepReadable){
-            currentCodeCardSizes();
-            if(!codeViewCameraReadyRef.current)pinCodeCardsToFolderLayout();
-            else freezeNewCodeCardsInPlace();
+            applyOpenedCardPlacements({skipFly:true});
             placeRemainingCodeNodes();
             syncCodeCards();
             applyReadableLabels((codeZoomTransformRef.current&&codeZoomTransformRef.current.k)||1);
@@ -8624,9 +8900,7 @@ function App(){
         }
         var layoutKey=codeViewFiles.map(function(file){return file.path;}).join('|');
         if(layoutKey!==codeCardLayoutKeyRef.current)codeCardLayoutKeyRef.current=layoutKey;
-        currentCodeCardSizes();
-        if(!codeViewCameraReadyRef.current)pinCodeCardsToFolderLayout();
-        else freezeNewCodeCardsInPlace();
+        applyOpenedCardPlacements();
         placeRemainingCodeNodes();
         syncCodeCards();
     },[codeViewFiles,graphConfig.vizType,graphConfig.linkDist]);
@@ -10135,38 +10409,51 @@ function App(){
                     folderFilter
                 )
             ),
-            React.createElement('div',{className:'sidebar-scroll'},React.createElement(TreeNode,{node:data.tree,selected:selected,onSelect:selectFile,expanded:expandedPaths,toggle:togglePath,filterFolder:filterByFolder,activeFilter:folderFilter}))
+            React.createElement('div',{className:'sidebar-scroll'},React.createElement(TreeNode,{node:data.tree,selected:selected,onSelect:function(path){if(graphConfig.vizType==='code')openCodeFile(path);else selectFile(path);},expanded:expandedPaths,toggle:togglePath,filterFolder:filterByFolder,activeFilter:folderFilter}))
         );
     }
     function beginCodeCardDrag(e,file){
         if(e.pointerType==='mouse'&&e.button!==0)return;
         e.stopPropagation();
         var node=graphNodesByIdRef.current[file.path];
-        var sim=simRef.current;
         var transform=codeZoomTransformRef.current||{k:1,x:0,y:0};
         var k=Number(transform.k);
         if(!isFinite(k)||k<=0)k=1;
-        if(!node||!sim){
+        if(!node){
             selectFile(file.path);
             return;
         }
         var startX=e.clientX,startY=e.clientY,originX=node.x,originY=node.y,moved=false;
         node.fx=node.x;node.fy=node.y;
-        sim.alphaTarget(0.18).restart();
+        function writePlacement(){
+            var size=codeCardSizesRef.current[file.path]||codeCardSize(file);
+            var prev=codeCardPlacementRef.current[file.path]||{};
+            codeCardPlacementRef.current[file.path]={
+                left:node.fx-size.width/2,
+                top:node.fy-size.height/2,
+                x:node.fx,
+                y:node.fy,
+                width:size.width,
+                height:size.height,
+                folder:file.folder||prev.folder||'root'
+            };
+        }
         function onMove(ev){
             var dx=(ev.clientX-startX)/k,dy=(ev.clientY-startY)/k;
             if(Math.abs(dx)+Math.abs(dy)>3){
                 moved=true;
                 codeCardUserPinnedRef.current.add(file.path);
             }
-            node.fx=originX+dx;node.fy=originY+dy;
+            node.x=node.fx=originX+dx;
+            node.y=node.fy=originY+dy;
+            writePlacement();
             syncCodeCards();
+            redrawGraphLinksAndNodes();
         }
         function onUp(){
             window.removeEventListener('pointermove',onMove);
             window.removeEventListener('pointerup',onUp);
             window.removeEventListener('pointercancel',onUp);
-            sim.alphaTarget(0);
             var end=noteCodeCardPointerEnd(moved);
             if(end.ignoreNextClick){
                 codeCardIgnoreClickRef.current=true;
@@ -10174,7 +10461,8 @@ function App(){
             }
             if(moved){
                 codeCardUserPinnedRef.current.add(file.path);
-                node.fx=node.x;node.fy=node.y;
+                node.x=node.fx;node.y=node.fy;
+                writePlacement();
             }
             if(end.select)selectFile(file.path);
         }
@@ -10203,18 +10491,19 @@ function App(){
             body=React.createElement('div',{className:'empty-desc',style:{padding:'12px'}},message);
         }
         var cardSize=codeCardSize(file);
+        var pills=isPrimary?codeCardSymbolPills(file,data?data.connections:[]):[];
         return React.createElement('div',{key:file.path,'data-code-card':file.path,className:'code-card'+(isPrimary?' primary':' linked')+(cardSize.clipped?' clipped':''),onClick:function(e){
             var taken=consumeCodeCardClick(codeCardIgnoreClickRef.current);
             codeCardIgnoreClickRef.current=taken.ignoreNextClick;
             if(taken.ignore){e.stopPropagation();return;}
-            if(selected&&selected.path!==file.path)selectFile(file.path);
+            if(!selected||selected.path!==file.path)selectFile(file.path);
         }},
             React.createElement('div',{className:'code-card-head',onPointerDown:function(e){beginCodeCardDrag(e,file);}},
                 React.createElement('div',null,
                     React.createElement('div',{className:'code-card-name'},file.name),
                     React.createElement('div',{className:'code-card-path'},file.path)
                 ),
-                React.createElement('span',{className:'badge badge-default'},isPrimary?'selected':'linked')
+                React.createElement('span',{className:'badge badge-default'},isPrimary?'selected':'open')
             ),
             React.createElement('div',{className:'code-card-body',onClick:function(e){
                 var mark=e.target.closest?e.target.closest('[data-sym]'):null;
@@ -10223,18 +10512,30 @@ function App(){
                     var name=mark.getAttribute('data-sym');
                     setActiveSymbol(function(prev){return prev===name?null:name;});
                 }
-            }},body)
+            }},body),
+            pills.map(function(pill){
+                return React.createElement('button',{
+                    key:pill.name+':'+pill.line,
+                    className:'code-line-pill '+pill.kind+(activeSymbol===pill.name?' active':''),
+                    style:{top:pill.top+'px'},
+                    title:pill.name,
+                    onClick:function(e){
+                        e.stopPropagation();
+                        setActiveSymbol(function(prev){return prev===pill.name?null:pill.name;});
+                    }
+                },pill.name);
+            })
         );
     }
     function renderCodeView(){
         var primaryPath=selected&&selected.path;
-        return React.createElement('div',{className:'code-canvas'},
+        return React.createElement('div',{className:'code-canvas',ref:codeCanvasRef},
             React.createElement('svg',{ref:svgRef}),
             React.createElement('div',{className:'code-canvas-cards',ref:codeCardsLayerRef},
                 codeViewFiles.map(function(file){return renderCodeFileCard(file,file.path===primaryPath);})
             ),
             React.createElement('div',{className:'code-canvas-hud'},
-                React.createElement('div',{className:'code-canvas-hint'},codeViewFiles.length?(codeViewFileTotal>codeViewFiles.length?'Showing '+codeViewFiles.length+' of '+codeViewFileTotal+' connected files.':'File cards on the canvas. Click another node to shift the set.'):'No files to open as cards.'),
+                React.createElement('div',{className:'code-canvas-hint'},codeViewFiles.length?'Open files from leftover nodes or the Files tree. Open cards stay put. Wheel pans · Ctrl+wheel zooms.':'No files to open as cards.'),
                 codeViewSymbols.length>0&&React.createElement('div',{className:'code-sym-list'},
                     codeViewSymbols.map(function(sym){
                         return React.createElement('button',{key:sym.name,className:'code-sym-chip '+sym.kind+(activeSymbol===sym.name?' active':''),title:sym.name,onClick:function(){setActiveSymbol(function(prev){return prev===sym.name?null:sym.name;});}},sym.name);
