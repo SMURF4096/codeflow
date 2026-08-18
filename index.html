@@ -69,9 +69,21 @@ body{font-family:'JetBrains Mono',monospace;background:var(--bg0);color:var(--t0
 .resize-handle:hover{background:var(--acc);opacity:0.3}
 .sidebar-section{padding:12px;border-bottom:1px solid var(--border)}
 .sidebar-title{font-size:9px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px}
-.sidebar-scroll{flex:1;overflow-y:auto;padding:8px}
+.sidebar-scroll{flex:1;overflow-y:auto;padding:8px;min-height:0}
 .sidebar-scroll::-webkit-scrollbar{width:6px}
 .sidebar-scroll::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+.sidebar-tabs{display:flex;flex-shrink:0;border-bottom:1px solid var(--border);background:var(--bg2)}
+.sidebar-tab{flex:1;padding:9px 4px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--t3);font-family:inherit;font-size:9px;font-weight:600;letter-spacing:0.4px;text-transform:uppercase;cursor:pointer}
+.sidebar-tab:hover{color:var(--t1)}
+.sidebar-tab.active{color:var(--acc);border-bottom-color:var(--acc)}
+.sidebar-pane{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.sidebar-filter{flex-shrink:0;padding:8px 10px;border-bottom:1px solid var(--border)}
+.color-by{position:absolute;top:12px;right:12px;z-index:51;display:flex;align-items:center;gap:2px;background:var(--bg1);border:1px solid var(--border);border-radius:8px;padding:3px 3px 3px 6px}
+.color-by-label{font-size:8px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:0.4px;margin-right:2px;white-space:nowrap}
+.color-by-btn{padding:3px 7px;background:transparent;border:1px solid transparent;border-radius:5px;font-size:9px;font-family:inherit;color:var(--t2);cursor:pointer}
+.color-by-btn:hover{color:var(--t0)}
+.color-by-btn.active{background:var(--accbg);border-color:var(--acc);color:var(--acc)}
+.legend.with-color-by{top:50px}
 .view-modes{display:flex;flex-direction:column;gap:2px}
 .view-mode{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;cursor:pointer;font-size:11px;color:var(--t1)}
 .view-mode:hover{background:var(--hover)}
@@ -568,7 +580,9 @@ body{height:100dvh;min-height:100dvh}
 .canvas-toolbar{top:68px;left:12px;right:12px;gap:8px;overflow-x:auto;padding-bottom:2px}
 .tool-btn{width:40px;height:40px;font-size:15px;flex:0 0 auto}
 .graph-config{top:120px;left:12px;right:12px;width:auto;max-width:none}
+.color-by{top:auto;bottom:118px;right:12px}
 .legend{top:auto;bottom:68px;right:12px;max-width:calc(100vw - 24px)}
+.legend.with-color-by{top:auto;bottom:68px}
 .canvas-info{left:12px;right:12px;bottom:12px;overflow-x:auto;padding-bottom:calc(2px + env(safe-area-inset-bottom))}
 .info-chip{white-space:nowrap;flex:0 0 auto}
 .export-options,.pr-grid,.pr-impact-grid,.unused-summary{grid-template-columns:1fr}
@@ -595,7 +609,9 @@ body{height:100dvh;min-height:100dvh}
 .health-score{align-items:flex-start}
 .canvas-toolbar{top:64px}
 .graph-config{top:116px}
+.color-by{bottom:122px}
 .legend{bottom:72px;right:12px}
+.legend.with-color-by{bottom:72px}
 .panel-tabs{position:sticky;top:0;z-index:2}
 .file-preview-modal{width:100vw;height:100dvh;border-radius:0;border:none}
 .file-preview-header{border-radius:0;padding:12px}
@@ -651,7 +667,9 @@ body{height:100dvh;min-height:100dvh}
 .graph-config{top:52px;left:10px;right:10px;width:auto;max-width:none}
 .architecture-view{padding:0}
 .architecture-shell{min-width:0;padding:0}
+.color-by{top:auto;bottom:118px;right:10px}
 .legend{top:auto;bottom:72px;right:10px;max-width:calc(100vw - 20px)}
+.legend.with-color-by{top:auto;bottom:72px}
 .canvas-info{left:10px;right:10px;bottom:10px;overflow-x:auto;padding-bottom:0}
 .info-chip{white-space:nowrap;flex:0 0 auto}
 }
@@ -661,7 +679,9 @@ body{height:100dvh;min-height:100dvh}
 .mobile-secondary-row .auth-select{width:106px}
 .mobile-secondary-row .top-btn,.mobile-secondary-row .refresh-btn,.mobile-secondary-row .reset-btn{padding:0 9px}
 .canvas-toolbar{bottom:70px}
+.color-by{bottom:116px}
 .legend{bottom:70px}
+.legend.with-color-by{bottom:70px}
 }
     </style>
 </head>
@@ -6643,6 +6663,7 @@ function App(){
     var _j=useState(null),selected=_j[0],setSelected=_j[1];
     var _k=useState(new Set([''])),expandedPaths=_k[0],setExpandedPaths=_k[1];
     var _l=useState(new Set(['blast','fns'])),expandedCards=_l[0],setExpandedCards=_l[1];
+    var _leftRail=useState('recents'),leftTab=_leftRail[0],setLeftTab=_leftRail[1];
     var _m=useState('details'),rightTab=_m[0],setRightTab=_m[1];
     var _m2=useState(null),drillDown=_m2[0],setDrillDown=_m2[1];// {type:'issue'|'pattern'|'security'|'suggestion'|'duplicate', data:...}
     var _n=useState(null),blastRadius=_n[0],setBlastRadius=_n[1];
@@ -8140,6 +8161,12 @@ function App(){
         var seed=defaultCodeViewSeed(data,folderFilter);
         if(seed&&selectFileRef.current)selectFileRef.current(seed);
     },[graphConfig.vizType,data,folderFilter,selected]);
+    var hadAnalysisRef=useRef(false);
+    useEffect(function(){
+        if(data&&!hadAnalysisRef.current)setLeftTab('files');
+        if(!data)setLeftTab('recents');
+        hadAnalysisRef.current=!!data;
+    },[data]);
     var codeViewFileTotal=useMemo(function(){
         if(!data)return 0;
         return countVisibleCodeFiles(selected&&selected.path,data,folderFilter);
@@ -9853,10 +9880,9 @@ function App(){
     function resetAnalysis(){setData(null);setSelected(null);setBlastRadius(null);setOwnership(null);setRepoInfo(null);setRepoUrl('');setPrData(null);setFolderFilter(null);setLocalDirHandle(null);setLocalSourceKind(null);setArchitectureIncludeTests(false);setArchitectureIncludeBuildOutput(false);setCachedFromId(null);setActiveSymbol(null);setCliDirty([]);localFolderKeyRef.current=null;localFolderSelectionRef.current=null;localFilesRef.current=null;zipKeyRef.current=null;zipArchiveRef.current=null;zipFileRef.current=null;window.history.replaceState({},'',window.location.pathname);}
     function filterByFolder(path){setFolderFilter(function(prev){return prev===path?null:path;});}
     function renderRecentsList(){
-        return React.createElement('div',{className:'sidebar-section'},
-            React.createElement('div',{className:'sidebar-title'},iconLabel('clock','Recent analyses')),
+        return React.createElement('div',{className:'sidebar-scroll'},
             recentAnalyses.length?React.createElement('div',{className:'recent-list'},
-                recentAnalyses.slice(0,8).map(function(item){
+                recentAnalyses.map(function(item){
                     var active=cachedFromId===item.id||(data&&currentAnalysisSource()&&analysisCacheKey(currentAnalysisSource().sourceType,currentAnalysisSource().sourceKey)===item.id);
                     return React.createElement('div',{key:item.id,className:'recent-item'+(active?' active':''),onClick:function(){loadRecentAnalysis(item.id);}},
                         React.createElement('div',{className:'recent-item-main'},
@@ -9870,6 +9896,72 @@ function App(){
                     );
                 })
             ):React.createElement('div',{className:'recent-empty'},'Analyses you run are cached here so the same tree is not fetched twice.')
+        );
+    }
+    function renderColorByControl(){
+        if(graphConfig.vizType!=='graph'&&graphConfig.vizType!=='graph3d')return null;
+        return React.createElement('div',{className:'color-by',role:'group','aria-label':'Color graph by'},
+            React.createElement('span',{className:'color-by-label'},'Color'),
+            React.createElement('button',{type:'button',className:'color-by-btn'+(colorMode==='folder'?' active':''),onClick:function(){setColorMode('folder');}},'Folder'),
+            React.createElement('button',{type:'button',className:'color-by-btn'+(colorMode==='layer'?' active':''),onClick:function(){setColorMode('layer');}},'Layer'),
+            React.createElement('button',{type:'button',className:'color-by-btn'+(colorMode==='churn'?' active':''),onClick:function(){setColorMode('churn');}},'Churn')
+        );
+    }
+    function renderSidebarEmpty(title,desc){
+        return React.createElement('div',{className:'empty-state'},
+            React.createElement(Icon,{name:'search',size:'xxl',className:'empty-icon'}),
+            React.createElement('div',{className:'empty-title'},title),
+            React.createElement('div',{className:'empty-desc'},desc)
+        );
+    }
+    function renderOverviewPane(){
+        if(!data)return renderSidebarEmpty('No Repository','Enter a GitHub URL, open a folder, or load a ZIP archive');
+        return React.createElement('div',{className:'sidebar-scroll'},
+            React.createElement('div',{className:'health-score',style:{marginBottom:10}},
+                React.createElement(HealthRing,{score:health.score,grade:health.grade}),
+                React.createElement('div',{className:'health-info'},
+                    React.createElement('div',{className:'health-grade',style:{color:health.score>=80?'var(--green)':health.score>=60?'var(--orange)':'var(--red)'}},health.score,'/100'),
+                    React.createElement('div',{className:'health-label'},'Health Score')
+                )
+            ),
+            (cachedFromId||cliDirty.length>0)&&React.createElement('div',{className:'stale-banner'},
+                React.createElement('span',null,cliDirty.length?'Watched files changed. Re-analyze to refresh.':'Cached analysis. Re-analyze to refresh.'),
+                React.createElement('button',{className:'top-btn primary',onClick:refreshAnalysis,disabled:loading},'Re-analyze')
+            ),
+            React.createElement('div',{className:'stats-grid'},
+                React.createElement('div',{className:'stat-card'},React.createElement('div',{className:'stat-value'},data.stats.files),React.createElement('div',{className:'stat-label'},'Files')),
+                React.createElement('div',{className:'stat-card'},React.createElement('div',{className:'stat-value'},data.stats.functions),React.createElement('div',{className:'stat-label'},'Functions')),
+                React.createElement('div',{className:'stat-card'},React.createElement('div',{className:'stat-value'},data.stats.connections),React.createElement('div',{className:'stat-label'},'Links')),
+                React.createElement('div',{className:'stat-card'+(data.stats.dead>10?' warn':''),style:{cursor:data.stats.dead>0?'pointer':'default'},onClick:function(){if(data.stats.dead>0)setShowUnused(true);}},React.createElement('div',{className:'stat-value'},data.stats.dead),React.createElement('div',{className:'stat-label'},'Unused'))
+            ),
+            React.createElement('div',{className:'loc-stat'},
+                React.createElement('div',{className:'loc-value'},data.stats.loc?data.stats.loc.toLocaleString():'0'),
+                React.createElement('div',{className:'loc-label'},'Lines of Code')
+            ),
+            data.stats.languages&&data.stats.languages.length>0&&React.createElement(React.Fragment,null,
+                React.createElement('div',{className:'lang-bar'},
+                    data.stats.languages.slice(0,6).map(function(l,i){return React.createElement('div',{key:l.ext,className:'lang-bar-segment',style:{width:l.pct+'%',background:COLORS[i%COLORS.length]}});})
+                ),
+                React.createElement('div',{className:'lang-legend'},
+                    data.stats.languages.slice(0,6).map(function(l,i){return React.createElement('div',{key:l.ext,className:'lang-item'},
+                        React.createElement('div',{className:'lang-dot',style:{background:COLORS[i%COLORS.length]}}),
+                        React.createElement('span',null,l.ext,' ',l.pct,'%')
+                    );})
+                )
+            )
+        );
+    }
+    function renderFilesPane(){
+        if(!data)return renderSidebarEmpty('No Files','Analyze a repository to browse its folder tree');
+        return React.createElement(React.Fragment,null,
+            folderFilter&&React.createElement('div',{className:'sidebar-filter'},
+                React.createElement('button',{className:'top-btn',style:{width:'100%'},onClick:function(){setFolderFilter(null);}},
+                    React.createElement(Icon,{name:'close',size:'s'}),
+                    ' Clear Filter: ',
+                    folderFilter
+                )
+            ),
+            React.createElement('div',{className:'sidebar-scroll'},React.createElement(TreeNode,{node:data.tree,selected:selected,onSelect:selectFile,expanded:expandedPaths,toggle:togglePath,filterFolder:filterByFolder,activeFilter:folderFilter}))
         );
     }
     function beginCodeCardDrag(e,file){
@@ -10216,8 +10308,8 @@ function App(){
             React.createElement('div',{className:'sidebar'+(isMobile&&mobilePanel==='explorer'?' mobile-visible':''),style:{width:isMobile?'100vw':sidebarWidth}},
                 isMobile&&React.createElement('div',{className:'mobile-panel-header'},
                     React.createElement('div',{className:'mobile-panel-meta'},
-                        React.createElement('div',{className:'mobile-panel-title'},'Explorer'),
-                        React.createElement('div',{className:'mobile-panel-subtitle'},data?(folderFilter?'Filtered by '+folderFilter:data.files.length+' files ready to browse'):'Analyze a repo or open a folder')
+                        React.createElement('div',{className:'mobile-panel-title'},leftTab==='overview'?'Overview':leftTab==='files'?'Files':'Recents'),
+                        React.createElement('div',{className:'mobile-panel-subtitle'},leftTab==='recents'?(recentAnalyses.length?recentAnalyses.length+' cached analyses':'No cached analyses'):data?(folderFilter?'Filtered by '+folderFilter:data.files.length+' files ready to browse'):'Analyze a repo or open a folder')
                     ),
                     React.createElement('button',{className:'mobile-panel-close',type:'button','aria-label':'Close explorer panel',onClick:function(){setMobilePanel(null);}},
                         React.createElement(Icon,{name:'close',size:'m'})
@@ -10230,70 +10322,15 @@ function App(){
                     function onUp(){document.removeEventListener('mousemove',onMove);document.removeEventListener('mouseup',onUp);}
                     document.addEventListener('mousemove',onMove);document.addEventListener('mouseup',onUp);
                 }}),
-                data?React.createElement(React.Fragment,null,
-                    React.createElement('div',{className:'sidebar-section'},
-                        React.createElement('div',{className:'health-score'},
-                            React.createElement(HealthRing,{score:health.score,grade:health.grade}),
-                            React.createElement('div',{className:'health-info'},
-                                React.createElement('div',{className:'health-grade',style:{color:health.score>=80?'var(--green)':health.score>=60?'var(--orange)':'var(--red)'}},health.score,'/100'),
-                                React.createElement('div',{className:'health-label'},'Health Score')
-                            )
-                        )
-                    ),
-                    React.createElement('div',{className:'sidebar-section'},
-                        React.createElement('div',{className:'sidebar-title'},'Color By'),
-                        React.createElement('div',{className:'view-modes'},
-                            React.createElement('div',{className:'view-mode'+(colorMode==='folder'?' active':''),onClick:function(){setColorMode('folder');}},React.createElement(Icon,{name:'folder',size:'m',className:'view-mode-icon'}),'Folder'),
-                            React.createElement('div',{className:'view-mode'+(colorMode==='layer'?' active':''),onClick:function(){setColorMode('layer');}},React.createElement(Icon,{name:'layers',size:'m',className:'view-mode-icon'}),'Layer'),
-                            React.createElement('div',{className:'view-mode'+(colorMode==='churn'?' active':''),onClick:function(){setColorMode('churn');}},React.createElement(Icon,{name:'activity',size:'m',className:'view-mode-icon'}),'Churn')
-                        )
-                    ),
-                    (cachedFromId||cliDirty.length>0)&&React.createElement('div',{className:'sidebar-section'},
-                        React.createElement('div',{className:'stale-banner'},
-                            React.createElement('span',null,cliDirty.length?'Watched files changed. Re-analyze to refresh.':'Cached analysis. Re-analyze to refresh.'),
-                            React.createElement('button',{className:'top-btn primary',onClick:refreshAnalysis,disabled:loading},'Re-analyze')
-                        )
-                    ),
-                    renderRecentsList(),
-                    React.createElement('div',{className:'sidebar-section'},
-                        React.createElement('div',{className:'stats-grid'},
-                            React.createElement('div',{className:'stat-card'},React.createElement('div',{className:'stat-value'},data.stats.files),React.createElement('div',{className:'stat-label'},'Files')),
-                            React.createElement('div',{className:'stat-card'},React.createElement('div',{className:'stat-value'},data.stats.functions),React.createElement('div',{className:'stat-label'},'Functions')),
-                            React.createElement('div',{className:'stat-card'},React.createElement('div',{className:'stat-value'},data.stats.connections),React.createElement('div',{className:'stat-label'},'Links')),
-                            React.createElement('div',{className:'stat-card'+(data.stats.dead>10?' warn':''),style:{cursor:data.stats.dead>0?'pointer':'default'},onClick:function(){if(data.stats.dead>0)setShowUnused(true);}},React.createElement('div',{className:'stat-value'},data.stats.dead),React.createElement('div',{className:'stat-label'},'Unused'))
-                        ),
-                        React.createElement('div',{className:'loc-stat'},
-                            React.createElement('div',{className:'loc-value'},data.stats.loc?data.stats.loc.toLocaleString():'0'),
-                            React.createElement('div',{className:'loc-label'},'Lines of Code')
-                        ),
-                        data.stats.languages&&data.stats.languages.length>0&&React.createElement(React.Fragment,null,
-                            React.createElement('div',{className:'lang-bar'},
-                                data.stats.languages.slice(0,6).map(function(l,i){return React.createElement('div',{key:l.ext,className:'lang-bar-segment',style:{width:l.pct+'%',background:COLORS[i%COLORS.length]}});})
-                            ),
-                            React.createElement('div',{className:'lang-legend'},
-                                data.stats.languages.slice(0,6).map(function(l,i){return React.createElement('div',{key:l.ext,className:'lang-item'},
-                                    React.createElement('div',{className:'lang-dot',style:{background:COLORS[i%COLORS.length]}}),
-                                    React.createElement('span',null,l.ext,' ',l.pct,'%')
-                                );})
-                            )
-                        )
-                    ),
-                    React.createElement('div',{className:'sidebar-section',style:{paddingBottom:8}},
-                        React.createElement('div',{className:'sidebar-title'},'Explorer'),
-                        folderFilter&&React.createElement('button',{className:'top-btn',style:{width:'100%',marginTop:8},onClick:function(){setFolderFilter(null);}},
-                            React.createElement(Icon,{name:'close',size:'s'}),
-                            ' Clear Filter: ',
-                            folderFilter
-                        )
-                    ),
-                    React.createElement('div',{className:'sidebar-scroll'},React.createElement(TreeNode,{node:data.tree,selected:selected,onSelect:selectFile,expanded:expandedPaths,toggle:togglePath,filterFolder:filterByFolder,activeFilter:folderFilter}))
-                ):React.createElement(React.Fragment,null,
-                    renderRecentsList(),
-                    React.createElement('div',{className:'empty-state'},
-                        React.createElement(Icon,{name:'search',size:'xxl',className:'empty-icon'}),
-                        React.createElement('div',{className:'empty-title'},'No Repository'),
-                        React.createElement('div',{className:'empty-desc'},'Enter a GitHub URL, open a folder, or load a ZIP archive')
-                    )
+                React.createElement('div',{className:'sidebar-tabs',role:'tablist','aria-label':'Left rail'},
+                    React.createElement('button',{type:'button',role:'tab','aria-selected':leftTab==='overview',className:'sidebar-tab'+(leftTab==='overview'?' active':''),onClick:function(){setLeftTab('overview');}},'Overview'),
+                    React.createElement('button',{type:'button',role:'tab','aria-selected':leftTab==='files',className:'sidebar-tab'+(leftTab==='files'?' active':''),onClick:function(){setLeftTab('files');}},'Files'),
+                    React.createElement('button',{type:'button',role:'tab','aria-selected':leftTab==='recents',className:'sidebar-tab'+(leftTab==='recents'?' active':''),onClick:function(){setLeftTab('recents');}},'Recents')
+                ),
+                React.createElement('div',{className:'sidebar-pane'},
+                    leftTab==='overview'&&renderOverviewPane(),
+                    leftTab==='files'&&renderFilesPane(),
+                    leftTab==='recents'&&renderRecentsList()
                 )
             ),
             React.createElement('div',{className:'canvas-area'},
@@ -10394,7 +10431,8 @@ function App(){
                             blastRadius.fnsUsed>0?' • '+blastRadius.fnsUsed+' fns used':''
                         )
                     ),
-                    graphConfig.vizType!=='architecture'&&graphConfig.vizType!=='code'&&React.createElement('div',{className:'legend'+(legendCollapsed?' collapsed':'')},
+                    renderColorByControl(),
+                    graphConfig.vizType!=='architecture'&&graphConfig.vizType!=='code'&&React.createElement('div',{className:'legend'+(legendCollapsed?' collapsed':'')+((graphConfig.vizType==='graph'||graphConfig.vizType==='graph3d')?' with-color-by':'')},
                         React.createElement('div',{className:'legend-header',onClick:function(){setLegendCollapsed(!legendCollapsed);}},
                             React.createElement('div',{className:'legend-title',style:{margin:0}},colorMode==='folder'?'Folders':colorMode==='layer'?'Layers':'Churn'),
                             React.createElement('span',{className:'legend-toggle'},'▼')

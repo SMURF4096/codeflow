@@ -407,4 +407,13 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /onPointerDown/);
   assert.match(htmlSource, /__codeflow\/file\?path=/);
   assert.match(htmlSource, /The folder picker is faster when the API is rate-limited/);
+  assert.match(htmlSource, /className:'sidebar-tabs'/);
+  assert.match(htmlSource, /className:'sidebar-tab'/);
+  assert.match(htmlSource, /setLeftTab\('overview'\)/);
+  assert.match(htmlSource, /setLeftTab\('files'\)/);
+  assert.match(htmlSource, /setLeftTab\('recents'\)/);
+  assert.match(htmlSource, /function renderColorByControl\(/);
+  assert.match(htmlSource, /className:'color-by'/);
+  assert.doesNotMatch(htmlSource, /sidebar-title'\},'Color By'/);
+  assert.doesNotMatch(htmlSource, /sidebar-title'\},'Explorer'/);
 });
