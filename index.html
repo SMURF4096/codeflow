@@ -489,9 +489,8 @@ body{font-family:'JetBrains Mono',monospace;background:var(--bg0);color:var(--t0
 .code-card-body{flex:1;overflow:hidden;min-height:0;user-select:text}
 .code-card.clipped .code-card-body{overflow:auto;touch-action:pan-y}
 .code-card-body .file-preview-code{padding:8px 0;font-size:11px}
-.has-code-card .nc,.has-code-card .node-label{opacity:0!important;pointer-events:none}
-.code-faded .nc{opacity:0.18!important}
-.code-faded .node-label{opacity:0.35!important}
+.has-code-card{display:none!important}
+.has-code-card .nc,.has-code-card .node-label{pointer-events:none}
 .sym-mark{border-radius:3px;padding:0 1px;cursor:pointer}
 .sym-mark.fn{background:rgba(97,175,239,0.16)}
 .sym-mark.import{background:rgba(198,120,221,0.16)}
@@ -5715,6 +5714,45 @@ function readableLabelScale(k){
     return Math.min(8,1/zoom);
 }
 
+function nodeReplacedByCard(path,cardPaths){
+    return !!(cardPaths&&cardPaths.has(path));
+}
+
+function unburyNodesFromCards(nodes,cardPaths,sizesByPath,pad){
+    pad=pad==null?36:pad;
+    var list=nodes||[];
+    var cards=[];
+    list.forEach(function(node){
+        if(!node||!cardPaths||!cardPaths.has(node.id)||!isFinite(node.x)||!isFinite(node.y))return;
+        cards.push(node);
+    });
+    if(!cards.length)return list;
+    var pass;
+    for(pass=0;pass<4;pass++){
+        var moved=false;
+        list.forEach(function(node){
+            if(!node||(cardPaths&&cardPaths.has(node.id))||!isFinite(node.x)||!isFinite(node.y))return;
+            cards.forEach(function(card){
+                var size=(sizesByPath&&sizesByPath[card.id])||codeCardSize(null);
+                var hw=size.width/2+pad,hh=size.height/2+pad;
+                var dx=node.x-card.x,dy=node.y-card.y;
+                if(Math.abs(dx)>hw||Math.abs(dy)>hh)return;
+                var left=hw+dx,right=hw-dx,top=hh+dy,bottom=hh-dy;
+                var min=Math.min(left,right,top,bottom);
+                if(min===left)node.x=card.x-hw;
+                else if(min===right)node.x=card.x+hw;
+                else if(min===top)node.y=card.y-hh;
+                else node.y=card.y+hh;
+                if(node.fx!=null)node.fx=node.x;
+                if(node.fy!=null)node.fy=node.y;
+                moved=true;
+            });
+        });
+        if(!moved)break;
+    }
+    return list;
+}
+
 function githubZipDownloadUrl(owner,repo){
     return 'https://github.com/'+encodeURIComponent(owner)+'/'+encodeURIComponent(repo)+'/archive/HEAD.zip';
 }
@@ -8285,6 +8323,22 @@ function App(){
             node.fx=node.x;node.fy=node.y;
         });
     }
+    function placeRemainingCodeNodes(){
+        var sim=simRef.current;
+        if(!sim)return;
+        unburyNodesFromCards(sim.nodes(),codeCardPathsRef.current,codeCardSizesRef.current);
+        refreshCodeCardForces();
+        if(nodesRef.current){
+            nodesRef.current.attr('transform',function(d){return'translate('+d.x+','+d.y+')';});
+        }
+        if(linksRef.current){
+            if(graphConfig.curvedLinks){
+                linksRef.current.attr('d',function(d){var dx=d.target.x-d.source.x,dy=d.target.y-d.source.y,dr=Math.sqrt(dx*dx+dy*dy);return'M'+d.source.x+','+d.source.y+'A'+dr+','+dr+' 0 0,1 '+d.target.x+','+d.target.y;});
+            }else{
+                linksRef.current.attr('d',function(d){return'M'+d.source.x+','+d.source.y+'L'+d.target.x+','+d.target.y;});
+            }
+        }
+    }
 
     function refreshCodeCardForces(){
         var sim=simRef.current;
@@ -8303,8 +8357,12 @@ function App(){
             });
         }
         if(nodesRef.current){
-            nodesRef.current.classed('has-code-card',function(d){return codeCardPathsRef.current.has(d.id);});
-            nodesRef.current.classed('code-faded',function(d){return codeCardPathsRef.current.size>0&&!codeCardPathsRef.current.has(d.id);});
+            var markScale=readableLabelScale((codeZoomTransformRef.current||{}).k);
+            nodesRef.current.classed('has-code-card',function(d){return nodeReplacedByCard(d.id,codeCardPathsRef.current);});
+            nodesRef.current.classed('code-faded',false);
+            nodesRef.current.attr('display',function(d){return nodeReplacedByCard(d.id,codeCardPathsRef.current)?'none':null;});
+            nodesRef.current.selectAll('circle.nc').attr('transform',function(d){return nodeReplacedByCard(d.id,codeCardPathsRef.current)?'':'scale('+markScale+')';});
+            nodesRef.current.selectAll('text.node-label').attr('transform',function(d){return nodeReplacedByCard(d.id,codeCardPathsRef.current)?'':'scale('+markScale+')';});
         }
     }
 
@@ -8381,7 +8439,16 @@ function App(){
         function applyReadableLabels(k){
             if(!keepReadable)return;
             var s=readableLabelScale(k);
-            nodeLayer.selectAll('text.node-label').attr('transform','scale('+s+')');
+            nodeLayer.selectAll('g').each(function(d){
+                var hidden=nodeReplacedByCard(d&&d.id,codeCardPathsRef.current);
+                var sel=d3.select(this);
+                sel.classed('has-code-card',hidden);
+                sel.classed('code-faded',false);
+                sel.attr('display',hidden?'none':null);
+                if(hidden)return;
+                sel.select('circle.nc').attr('transform','scale('+s+')');
+                sel.select('text.node-label').attr('transform','scale('+s+')');
+            });
             hullLayer.selectAll('text.hull-label').attr('font-size',(11*s)+'px');
         }
         var zoom=d3.zoom().scaleExtent([keepReadable?0.08:0.2,5]).on('zoom',function(e){
@@ -8466,8 +8533,8 @@ function App(){
         nodesRef.current=node;
         node.call(d3.drag().on('start',function(e,d){if(!e.active)sim.alphaTarget(0.1).restart();d.fx=d.x;d.fy=d.y;}).on('drag',function(e,d){d.fx=e.x;d.fy=e.y;}).on('end',function(e,d){if(!e.active)sim.alphaTarget(0);if(keepReadable){d.fx=d.x;d.fy=d.y;codeCardUserPinnedRef.current.add(d.id);}else{d.fx=null;d.fy=null;}}));
         node.on('click',function(e,d){e.stopPropagation();if(selectFileRef.current)selectFileRef.current(d.id);});
-        node.classed('has-code-card',function(d){return keepReadable&&codeCardPathsRef.current.has(d.id);});
-        node.classed('code-faded',function(d){return keepReadable&&codeCardPathsRef.current.size>0&&!codeCardPathsRef.current.has(d.id);});
+        node.classed('has-code-card',function(d){return keepReadable&&nodeReplacedByCard(d.id,codeCardPathsRef.current);});
+        node.attr('display',function(d){return keepReadable&&nodeReplacedByCard(d.id,codeCardPathsRef.current)?'none':null;});
         node.on('mouseenter',function(e,d){if(keepReadable&&codeCardPathsRef.current.has(d.id))return;var r=svgRef.current.getBoundingClientRect();setTooltip({x:e.clientX-r.left+10,y:e.clientY-r.top,title:d.name,content:d.fnCount+' functions\n'+d.layer+' layer\n'+d.churn+' recent commits'});}).on('mouseleave',function(){setTooltip(null);});
         svg.on('click',function(e){if(e.target===svgRef.current){if(keepReadable)return;setSelected(null);setBlastRadius(null);link.attr('stroke',theme==='light'?'#ccc':'#333').attr('stroke-opacity',0.4);node.selectAll('.nc').attr('opacity',1).attr('fill',getC);}});
         node.append('circle').attr('class','nc').attr('r',getR).attr('fill',getC).attr('stroke',function(d){var c=d3.color(getC(d));return c?c.brighter(0.3):'#fff';}).attr('stroke-width',1.5);
@@ -8529,8 +8596,9 @@ function App(){
             currentCodeCardSizes();
             if(!codeViewCameraReadyRef.current)pinCodeCardsToFolderLayout();
             else freezeNewCodeCardsInPlace();
-            refreshCodeCardForces();
+            placeRemainingCodeNodes();
             syncCodeCards();
+            applyReadableLabels((codeZoomTransformRef.current&&codeZoomTransformRef.current.k)||1);
             updateHulls();
             if(shouldFitCodeCamera(codeViewCameraReadyRef.current,graphConfig.vizType)){
                 var fit=computeGraphFitTransform();
@@ -8556,7 +8624,7 @@ function App(){
         currentCodeCardSizes();
         if(!codeViewCameraReadyRef.current)pinCodeCardsToFolderLayout();
         else freezeNewCodeCardsInPlace();
-        refreshCodeCardForces();
+        placeRemainingCodeNodes();
         syncCodeCards();
     },[codeViewFiles,graphConfig.vizType,graphConfig.linkDist]);
 

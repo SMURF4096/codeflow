@@ -25,6 +25,27 @@ test('readable labels grow only when zoomed out', () => {
   assert.ok(context.readableLabelScale(0.1) > 2);
 });
 
+test('open Code cards replace their nodes', () => {
+  const cards = new Set(['src/app.js']);
+  assert.equal(context.nodeReplacedByCard('src/app.js', cards), true);
+  assert.equal(context.nodeReplacedByCard('src/math.js', cards), false);
+  assert.equal(context.nodeReplacedByCard('src/app.js', null), false);
+});
+
+test('remaining Code nodes are pushed out from under cards', () => {
+  const cards = new Set(['src/app.js']);
+  const sizes = { 'src/app.js': { width: 400, height: 200 } };
+  const nodes = [
+    { id: 'src/app.js', x: 100, y: 100 },
+    { id: 'src/math.js', x: 110, y: 105 }
+  ];
+  context.unburyNodesFromCards(nodes, cards, sizes, 20);
+  assert.equal(nodes[0].x, 100);
+  assert.equal(nodes[0].y, 100);
+  const buried = Math.abs(nodes[1].x - 100) <= 220 && Math.abs(nodes[1].y - 100) <= 120;
+  assert.equal(buried, false);
+});
+
 test('connected files include both directions', () => {
   const paths = context.getConnectedFilePaths('src/app.js', [
     { source: 'src/math.js', target: 'src/app.js', fn: 'add' },
@@ -417,6 +438,10 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /shouldFitCodeCamera/);
   assert.match(htmlSource, /codeViewCameraReadyRef/);
   assert.match(htmlSource, /graphRebuildKey/);
+  assert.match(htmlSource, /nodeReplacedByCard/);
+  assert.match(htmlSource, /unburyNodesFromCards/);
+  assert.match(htmlSource, /\.has-code-card\{display:none/);
+  assert.doesNotMatch(htmlSource, /\.code-faded \.nc\{opacity:0\.18/);
   assert.doesNotMatch(htmlSource, /if\(firstOpen&&codeViewFiles\.length/);
   assert.match(htmlSource, /className:'code-sym-list'/);
   assert.doesNotMatch(htmlSource, /className:'code-sym-row'/);
