@@ -6397,6 +6397,25 @@ function codeCardPillViewTop(lineTop,scrollTop,cardHeight,headHeight){
     return y;
 }
 
+function readCodeCardBodyScroll(layer,path){
+    if(!layer||!path)return 0;
+    var cards=layer.querySelectorAll?layer.querySelectorAll('[data-code-card]'):[];
+    for(var i=0;i<cards.length;i++){
+        if(cards[i].getAttribute('data-code-card')!==path)continue;
+        var body=cards[i].querySelector?cards[i].querySelector('.code-card-body'):null;
+        var top=body?Number(body.scrollTop):0;
+        return isFinite(top)?top:0;
+    }
+    return 0;
+}
+
+function isCodeCanvasDeselectTarget(target,svg){
+    if(!target||!svg)return false;
+    if(target===svg)return true;
+    if(target.getAttribute&&target.getAttribute('data-code-bg')==='1')return true;
+    return !!(target.closest&&target.closest('[data-code-bg="1"]'));
+}
+
 function collectCrossFileSymbols(files,connections){
     var byName=Object.create(null);
     (files||[]).forEach(function(file){
@@ -8614,9 +8633,13 @@ function App(){
         el.addEventListener('wheel',onWheel,{passive:false});
         return function(){el.removeEventListener('wheel',onWheel);};
     },[graphConfig.vizType]);
-    useEffect(function(){
-        setCodePillScroll(0);
-    },[selected&&selected.path]);
+    useLayoutEffect(function(){
+        if(graphConfig.vizType!=='code'||!selected||!selected.path){
+            setCodePillScroll(0);
+            return;
+        }
+        setCodePillScroll(readCodeCardBodyScroll(codeCardsLayerRef.current,selected.path));
+    },[graphConfig.vizType,selected&&selected.path]);
     var hadAnalysisRef=useRef(false);
     useEffect(function(){
         if(data&&!hadAnalysisRef.current)setLeftTab('overview');
@@ -8855,7 +8878,7 @@ function App(){
         var container=svg.append('g');
         var defs=svg.append('defs');
         defs.append('marker').attr('id','arr').attr('viewBox','0 -5 10 10').attr('refX',14).attr('markerWidth',4).attr('markerHeight',4).attr('orient','auto').append('path').attr('d','M0,-4L10,0L0,4').attr('fill',theme==='light'?'#aaa':'#444');
-        var hullLayer=container.append('g');
+        var hullLayer=container.append('g').attr('data-code-bg','1').attr('pointer-events','none');
         var linkLayer=container.append('g');
         var nodeLayer=container.append('g');
         var sim=d3.forceSimulation(nodes);
@@ -8949,7 +8972,7 @@ function App(){
         node.attr('display',function(d){return keepReadable&&nodeReplacedByCard(d.id,codeCardPathsRef.current)?'none':null;});
         node.on('mouseenter',function(e,d){if(keepReadable&&codeCardPathsRef.current.has(d.id))return;var r=svgRef.current.getBoundingClientRect();setTooltip({x:e.clientX-r.left+10,y:e.clientY-r.top,title:d.name,content:d.fnCount+' functions\n'+d.layer+' layer\n'+d.churn+' recent commits'});}).on('mouseleave',function(){setTooltip(null);});
         svg.on('click',function(e){
-            if(e.target!==svgRef.current)return;
+            if(!isCodeCanvasDeselectTarget(e.target,svgRef.current))return;
             setSelected(null);
             setBlastRadius(null);
             setActiveSymbol(null);

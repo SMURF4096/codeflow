@@ -606,6 +606,50 @@ test('symbol pills track scroll and hide when clipped away', () => {
   assert.equal(context.codeCardPillViewTop(30, 0, 400, 42), null);
 });
 
+test('selection reads the live body scrollTop of a previously scrolled card', () => {
+  const layer = {
+    querySelectorAll(sel) {
+      if (sel !== '[data-code-card]') return [];
+      return [
+        {
+          getAttribute(name) { return name === 'data-code-card' ? 'src/other.js' : null; },
+          querySelector() { return { scrollTop: 999 }; }
+        },
+        {
+          getAttribute(name) { return name === 'data-code-card' ? 'src/app.js' : null; },
+          querySelector(sel) { return sel === '.code-card-body' ? { scrollTop: 240 } : null; }
+        }
+      ];
+    }
+  };
+  assert.equal(context.readCodeCardBodyScroll(layer, 'src/app.js'), 240);
+  assert.equal(context.readCodeCardBodyScroll(layer, 'src/missing.js'), 0);
+  assert.equal(context.readCodeCardBodyScroll(null, 'src/app.js'), 0);
+  assert.equal(context.readCodeCardBodyScroll(layer, ''), 0);
+});
+
+test('folder frames count as canvas background for deselect', () => {
+  const svg = { id: 'svg' };
+  const hull = {
+    getAttribute(name) { return name === 'data-code-bg' ? '1' : null; },
+    closest(sel) { return sel === '[data-code-bg="1"]' ? this : null; }
+  };
+  const hullChild = {
+    getAttribute() { return null; },
+    closest(sel) { return sel === '[data-code-bg="1"]' ? hull : null; }
+  };
+  const node = {
+    getAttribute() { return null; },
+    closest() { return null; }
+  };
+  assert.equal(context.isCodeCanvasDeselectTarget(svg, svg), true);
+  assert.equal(context.isCodeCanvasDeselectTarget(hull, svg), true);
+  assert.equal(context.isCodeCanvasDeselectTarget(hullChild, svg), true);
+  assert.equal(context.isCodeCanvasDeselectTarget(node, svg), false);
+  assert.equal(context.isCodeCanvasDeselectTarget(null, svg), false);
+  assert.equal(context.isCodeCanvasDeselectTarget(svg, null), false);
+});
+
 test('empty code cards always render from an array of lines', () => {
   assert.deepEqual(J(context.asCodeLines('')), ['']);
   assert.deepEqual(J(context.asCodeLines(null)), ['']);
@@ -638,6 +682,12 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /analysisHydrationId/);
   assert.match(htmlSource, /hydratedSourceIsCurrent/);
   assert.match(htmlSource, /codeCardPillViewTop/);
+  assert.match(htmlSource, /readCodeCardBodyScroll/);
+  assert.match(htmlSource, /readCodeCardBodyScroll\(codeCardsLayerRef\.current/);
+  assert.match(htmlSource, /isCodeCanvasDeselectTarget/);
+  assert.match(htmlSource, /isCodeCanvasDeselectTarget\(e\.target/);
+  assert.match(htmlSource, /data-code-bg/);
+  assert.match(htmlSource, /attr\('pointer-events','none'\)/);
   assert.match(htmlSource, /openCodeCardPaths/);
   assert.match(htmlSource, /filesForOpenedCodePaths/);
   assert.match(htmlSource, /applyOpenedCardPlacements/);
