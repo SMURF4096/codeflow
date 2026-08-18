@@ -467,6 +467,9 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /onPointerDown/);
   assert.match(htmlSource, /__codeflow\/file\?path=/);
   assert.match(htmlSource, /The folder picker is faster when the API is rate-limited/);
+  assert.match(htmlSource, /className:'panel-tab-pill'/);
+  assert.match(htmlSource, /\.panel-tab\{[^}]*flex-wrap:nowrap/);
+  assert.match(htmlSource, /\.panel-tabs\{[^}]*flex-wrap:nowrap/);
   assert.match(htmlSource, /className:'sidebar-tabs'/);
   assert.match(htmlSource, /className:'sidebar-tab'/);
   assert.match(htmlSource, /useState\('overview'\),leftTab=/);

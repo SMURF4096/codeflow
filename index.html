@@ -138,10 +138,13 @@ body{font-family:'JetBrains Mono',monospace;background:var(--bg0);color:var(--t0
 .legend-color{width:12px;height:12px;border-radius:3px;flex-shrink:0}
 .right-panel{width:360px;min-width:280px;max-width:500px;background:var(--bg1);border-left:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;position:relative;min-height:0}
 .right-panel .resize-handle{right:auto;left:-4px}
-.panel-tabs{display:flex;border-bottom:1px solid var(--border);background:var(--bg2)}
-.panel-tab{flex:1;padding:8px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--t3);font-family:inherit;font-size:9px;font-weight:600;cursor:pointer}
+.panel-tabs{display:flex;flex-wrap:nowrap;align-items:stretch;border-bottom:1px solid var(--border);background:var(--bg2)}
+.panel-tab{flex:1 1 0;min-width:0;display:inline-flex;flex-direction:row;flex-wrap:nowrap;align-items:center;justify-content:center;gap:4px;height:34px;padding:0 4px;line-height:16px;white-space:nowrap;overflow:hidden;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--t3);font-family:inherit;font-size:9px;font-weight:600;cursor:pointer}
 .panel-tab:hover{color:var(--t1)}
 .panel-tab.active{color:var(--acc);border-bottom-color:var(--acc)}
+.panel-tab .icon{flex-shrink:0}
+.panel-tab-pill{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;height:14px;min-width:14px;padding:0 5px;margin:0;border-radius:8px;font-size:8px;font-weight:600;line-height:14px;background:var(--bg3);color:var(--t2)}
+.panel-tab-pill.alert{background:var(--red);color:#fff}
 .panel-content{flex:1;overflow-y:auto;padding:12px}
 .panel-content::-webkit-scrollbar{width:6px}
 .panel-content::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
@@ -10638,9 +10641,9 @@ function App(){
                 data?React.createElement(React.Fragment,null,
                     React.createElement('div',{className:'panel-tabs'},
                         React.createElement('button',{className:'panel-tab'+(rightTab==='details'?' active':''),onClick:function(){setRightTab('details');setDrillDown(null);}},selected?iconLabel('file','FILE'):(graphConfig.vizType==='architecture'?iconLabel('layers','ARCH'):iconLabel('search','ISSUES'))),
-                        React.createElement('button',{className:'panel-tab'+(rightTab==='patterns'?' active':''),onClick:function(){setRightTab('patterns');setDrillDown(null);}},iconLabel('puzzle','PATTERNS'),' ',React.createElement('span',{className:'badge badge-default'},data.patterns.length)),
-                        React.createElement('button',{className:'panel-tab'+(rightTab==='security'?' active':''),onClick:function(){setRightTab('security');setDrillDown(null);}},iconLabel('security','SECURITY'),data.stats.security>0&&React.createElement('span',{className:'view-mode-badge',style:{marginLeft:4}},data.stats.security)),
-                        React.createElement('button',{className:'panel-tab'+(rightTab==='suggestions'?' active':''),onClick:function(){setRightTab('suggestions');setDrillDown(null);}},iconLabel('action','ACTIONS'),data.suggestions&&data.suggestions.length>0&&React.createElement('span',{className:'view-mode-badge',style:{marginLeft:4}},data.suggestions.length))
+                        React.createElement('button',{className:'panel-tab'+(rightTab==='patterns'?' active':''),onClick:function(){setRightTab('patterns');setDrillDown(null);}},iconLabel('puzzle','PATTERNS'),React.createElement('span',{className:'panel-tab-pill'},data.patterns.length)),
+                        React.createElement('button',{className:'panel-tab'+(rightTab==='security'?' active':''),onClick:function(){setRightTab('security');setDrillDown(null);}},iconLabel('security','SECURITY'),data.stats.security>0&&React.createElement('span',{className:'panel-tab-pill alert'},data.stats.security)),
+                        React.createElement('button',{className:'panel-tab'+(rightTab==='suggestions'?' active':''),onClick:function(){setRightTab('suggestions');setDrillDown(null);}},iconLabel('action','ACTIONS'),data.suggestions&&data.suggestions.length>0&&React.createElement('span',{className:'panel-tab-pill alert'},data.suggestions.length))
                     ),
                     React.createElement('div',{className:'panel-content'},
                         rightTab==='details'&&(selected?React.createElement(React.Fragment,null,
