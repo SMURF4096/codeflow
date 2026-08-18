@@ -5816,6 +5816,18 @@ function defaultCodeViewSeed(data,folderFilter){
     return best.path;
 }
 
+function codeViewSeedPath(selectedPath,data,folderFilter){
+    if(!data||!data.files||!data.files.length)return null;
+    if(selectedPath){
+        var selected=null;
+        for(var i=0;i<data.files.length;i++){
+            if(data.files[i].path===selectedPath){selected=data.files[i];break;}
+        }
+        if(selected&&(!folderFilter||selected.folder===folderFilter||(selected.folder&&selected.folder.startsWith(folderFilter+'/'))))return selectedPath;
+    }
+    return defaultCodeViewSeed(data,folderFilter);
+}
+
 function collectVisibleCodeFiles(selectedPath,data,folderFilter,limit){
     if(!data||!data.files)return[];
     var filtered=folderFilter?data.files.filter(function(f){return f.folder===folderFilter||f.folder.startsWith(folderFilter+'/');}):data.files;
@@ -6144,22 +6156,33 @@ function codeCardAnchorY(node,size,line){
     return (node&&isFinite(node.y)?node.y:0)-size.height/2+y;
 }
 
+function codeCardLinkEndpoint(node,size,file,other,fn,isCard){
+    if(!isCard)return{x:node.x,y:node.y};
+    size=size||codeCardSize(file);
+    var line=fn?codeCardSymbolLine(file,fn):null;
+    var y=codeCardAnchorY(node,size,line);
+    var left=node.x-size.width/2;
+    var right=node.x+size.width/2;
+    var toward=other&&isFinite(other.x)?other.x:right+1;
+    return{x:toward<node.x?left:right,y:y};
+}
+
 function codeCardLinkPath(link,sizesByPath,filesByPath,cardPaths){
     var src=link&&link.source;
     var tgt=link&&link.target;
     if(!src||!tgt||typeof src!=='object'||typeof tgt!=='object')return null;
-    if(!cardPaths||!cardPaths.has(src.id)||!cardPaths.has(tgt.id))return null;
+    var srcIsCard=!!(cardPaths&&cardPaths.has(src.id));
+    var tgtIsCard=!!(cardPaths&&cardPaths.has(tgt.id));
+    if(!srcIsCard&&!tgtIsCard)return null;
     if(!isFinite(src.x)||!isFinite(src.y)||!isFinite(tgt.x)||!isFinite(tgt.y))return null;
     var srcFile=filesByPath&&filesByPath[src.id];
     var tgtFile=filesByPath&&filesByPath[tgt.id];
     var srcSize=(sizesByPath&&sizesByPath[src.id])||codeCardSize(srcFile);
     var tgtSize=(sizesByPath&&sizesByPath[tgt.id])||codeCardSize(tgtFile);
     var fn=link.fn;
-    var x1=src.x+srcSize.width/2;
-    var x2=tgt.x-tgtSize.width/2;
-    var y1=codeCardAnchorY(src,srcSize,fn?codeCardSymbolLine(srcFile,fn):null);
-    var y2=codeCardAnchorY(tgt,tgtSize,fn?codeCardSymbolLine(tgtFile,fn):null);
-    return codeEdgeBezier(x1,y1,x2,y2);
+    var p1=codeCardLinkEndpoint(src,srcSize,srcFile,tgt,fn,srcIsCard);
+    var p2=codeCardLinkEndpoint(tgt,tgtSize,tgtFile,src,fn,tgtIsCard);
+    return codeEdgeBezier(p1.x,p1.y,p2.x,p2.y);
 }
 
 function codeFolderCardBounds(nodes,sizesByPath,pad){
@@ -8590,11 +8613,11 @@ function App(){
         var paths=openedCodePaths;
         var files=filesForOpenedCodePaths(paths,data,folderFilter);
         if((!files.length)&&graphConfig.vizType==='code'){
-            var seed=defaultCodeViewSeed(data,folderFilter);
+            var seed=codeViewSeedPath(selected&&selected.path,data,folderFilter);
             if(seed)files=filesForOpenedCodePaths([seed],data,folderFilter);
         }
         return files;
-    },[data,openedCodePaths,folderFilter,graphConfig.vizType]);
+    },[data,openedCodePaths,folderFilter,graphConfig.vizType,selected&&selected.path]);
     useEffect(function(){
         var scene=graphStructureKey(data,folderFilter);
         if(scene===openedSceneRef.current)return;
@@ -8607,11 +8630,11 @@ function App(){
     useEffect(function(){
         if(graphConfig.vizType!=='code'||!data)return;
         if(openedCodePaths.length)return;
-        var seed=defaultCodeViewSeed(data,folderFilter);
+        var seed=codeViewSeedPath(selected&&selected.path,data,folderFilter);
         if(!seed)return;
         setOpenedCodePaths([seed]);
         if(selectFileRef.current)selectFileRef.current(seed);
-    },[graphConfig.vizType,data,folderFilter,openedCodePaths.length]);
+    },[graphConfig.vizType,data,folderFilter,openedCodePaths.length,selected&&selected.path]);
     useEffect(function(){
         var el=codeCanvasRef.current;
         if(!el||graphConfig.vizType!=='code')return;

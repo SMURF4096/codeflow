@@ -143,10 +143,15 @@ test('Code view seeds cards without waiting for a click', () => {
     { source: 'hub.js', target: 'leaf.js', fn: 'h' },
     { source: 'hub.js', target: 'other.js', fn: 'h' }
   ];
-  assert.equal(context.defaultCodeViewSeed({ files, connections }, 'src'), 'hub.js');
-  const visible = context.collectVisibleCodeFiles(null, { files, connections }, 'src');
+  const data = { files, connections };
+  assert.equal(context.defaultCodeViewSeed(data, 'src'), 'hub.js');
+  assert.equal(context.codeViewSeedPath(null, data, 'src'), 'hub.js');
+  assert.equal(context.codeViewSeedPath('leaf.js', data, 'src'), 'leaf.js');
+  assert.equal(context.codeViewSeedPath('other.js', data, 'src'), 'hub.js');
+  const visible = context.collectVisibleCodeFiles(null, data, 'src');
   assert.deepEqual(J(visible).map((f) => f.path), ['hub.js', 'leaf.js']);
   assert.equal(context.defaultCodeViewSeed({ files: [], connections: [] }, null), null);
+  assert.equal(context.codeViewSeedPath('leaf.js', { files: [], connections: [] }, null), null);
 });
 
 test('high-degree neighborhoods stay within the card cap', () => {
@@ -306,6 +311,15 @@ test('line-level code edges use bezier anchors, not card centers', () => {
   const path = context.codeCardLinkPath({ source: src, target: tgt, fn: 'shared' }, sizes, files, cards);
   assert.match(path, /^M/);
   assert.ok(!path.includes(String(src.x) + ',' + String(src.y)));
+  const leftover = { id: 'src/c.js', x: 1100, y: 260 };
+  const fromCard = context.codeCardLinkPath({ source: src, target: leftover, fn: 'shared' }, sizes, files, new Set(['src/a.js']));
+  assert.match(fromCard, /^M440,/);
+  assert.match(fromCard, / 1100,260$/);
+  assert.ok(!fromCard.includes('220,200'));
+  const toCard = context.codeCardLinkPath({ source: leftover, target: tgt, fn: 'shared' }, sizes, files, new Set(['src/b.js']));
+  assert.match(toCard, /^M1100,260C/);
+  assert.ok(!toCard.includes('800,240'));
+  assert.equal(context.codeCardLinkPath({ source: src, target: leftover, fn: 'shared' }, sizes, files, new Set()), null);
   assert.equal(context.codeViewWheelAction({ ctrlKey: true }), 'zoom');
   assert.equal(context.codeViewWheelAction({}), 'pan');
 });
@@ -692,8 +706,11 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /filesForOpenedCodePaths/);
   assert.match(htmlSource, /applyOpenedCardPlacements/);
   assert.match(htmlSource, /codeCardLinkPath/);
+  assert.match(htmlSource, /codeCardLinkEndpoint/);
   assert.match(htmlSource, /code-line-pill/);
   assert.match(htmlSource, /defaultCodeViewSeed/);
+  assert.match(htmlSource, /codeViewSeedPath/);
+  assert.match(htmlSource, /codeViewSeedPath\(selected&&selected\.path/);
   assert.match(htmlSource, /shouldFitCodeCamera/);
   assert.match(htmlSource, /codeViewCameraReadyRef/);
   assert.match(htmlSource, /graphRebuildKey/);
