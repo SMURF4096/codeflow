@@ -6225,6 +6225,17 @@ function codeViewSceneKey(data,folderFilter,vizType){
     return graphStructureKey(data,folderFilter)+'|'+String(vizType||'');
 }
 
+function analysisHydrationId(source,data,folderFilter){
+    source=source||{};
+    return [source.sourceType||'',source.sourceKey||'',graphStructureKey(data,folderFilter)].join('\0');
+}
+
+function hydratedSourceIsCurrent(update,currentId){
+    if(!update||!update.path||typeof update.content!=='string')return false;
+    if(update.hydrationId==null||currentId==null)return true;
+    return update.hydrationId===currentId;
+}
+
 function preserveGraphNodeState(nodes,prevById){
     (nodes||[]).forEach(function(node){
         var prev=prevById&&prevById[node.id];
@@ -6377,6 +6388,15 @@ function codeCardSymbolPills(file,connections){
     }).filter(Boolean);
 }
 
+function codeCardPillViewTop(lineTop,scrollTop,cardHeight,headHeight){
+    var y=Number(lineTop)-(Number(scrollTop)||0);
+    var min=headHeight==null?CODE_CARD_HEAD_HEIGHT:Number(headHeight);
+    var max=Number(cardHeight);
+    if(!isFinite(y)||!isFinite(min)||!isFinite(max))return null;
+    if(y<min||y>max)return null;
+    return y;
+}
+
 function collectCrossFileSymbols(files,connections){
     var byName=Object.create(null);
     (files||[]).forEach(function(file){
@@ -6475,11 +6495,12 @@ function filesNeedingSource(files){
     return (files||[]).filter(analysisFileNeedsSource);
 }
 
-function mergeHydratedFileSources(data,updates){
+function mergeHydratedFileSources(data,updates,currentId){
     if(!data||!data.files||!updates||!updates.length)return data;
     var byPath=Object.create(null);
     updates.forEach(function(update){
-        if(update&&update.path&&typeof update.content==='string')byPath[update.path]=update.content;
+        if(!hydratedSourceIsCurrent(update,currentId))return;
+        byPath[update.path]=update.content;
     });
     var changed=false;
     var files=data.files.map(function(file){
@@ -7098,7 +7119,9 @@ function App(){
     var codeFilesByPathRef=useRef(Object.create(null));
     var codeCanvasRef=useRef(null);
     var codeSourceInFlightRef=useRef(Object.create(null));
+    var analysisHydrationIdRef=useRef('');
     var _openedCards=useState([]),openedCodePaths=_openedCards[0],setOpenedCodePaths=_openedCards[1];
+    var _pillScroll=useState(0),codePillScroll=_pillScroll[0],setCodePillScroll=_pillScroll[1];
     var pendingRecentDeleteTimerRef=useRef(null);
     var zipInputRef=useRef(null);
     var zipArchiveRef=useRef(null);
@@ -7304,6 +7327,7 @@ function App(){
         if(parsed)return{sourceType:'github',sourceKey:githubCacheSourceKey(parsed.owner,parsed.repo,activeExcludePatterns),title:parsed.owner+'/'+parsed.repo,repoUrl:parsed.owner+'/'+parsed.repo,localSourceKind:null};
         return null;
     }
+    analysisHydrationIdRef.current=analysisHydrationId(currentAnalysisSource(),data,folderFilter);
 
     function refreshRecentList(){
         listRecentAnalyses().then(function(rows){
@@ -8478,7 +8502,7 @@ function App(){
 
     function rememberHydratedSources(updates){
         if(!updates||!updates.length)return;
-        setData(function(prev){return mergeHydratedFileSources(prev,updates);});
+        setData(function(prev){return mergeHydratedFileSources(prev,updates,analysisHydrationIdRef.current);});
     }
 
     // Open file preview
@@ -8495,10 +8519,12 @@ function App(){
             setFilePreview({path:path,filename:filename,content:existingFile.content,line:line||null,loading:false,error:null});
             return;
         }
+        var previewId=analysisHydrationIdRef.current;
         readLiveFileSource(path).then(function(content){
+            if(analysisHydrationIdRef.current!==previewId)return;
             if(typeof content==='string'){
                 setFilePreview({path:path,filename:filename,content:content,line:line||null,loading:false,error:null});
-                rememberHydratedSources([{path:path,content:content}]);
+                rememberHydratedSources([{path:path,content:content,hydrationId:previewId}]);
                 return;
             }
             setFilePreview({path:path,filename:filename,content:null,line:line||null,loading:false,error:canReadLiveFileSource()?'Could not load file content':'Reopen this project to preview source'});
@@ -8588,6 +8614,9 @@ function App(){
         el.addEventListener('wheel',onWheel,{passive:false});
         return function(){el.removeEventListener('wheel',onWheel);};
     },[graphConfig.vizType]);
+    useEffect(function(){
+        setCodePillScroll(0);
+    },[selected&&selected.path]);
     var hadAnalysisRef=useRef(false);
     useEffect(function(){
         if(data&&!hadAnalysisRef.current)setLeftTab('overview');
@@ -8733,10 +8762,11 @@ function App(){
         var missing=filesNeedingSource(codeViewFiles);
         if(!missing.length||!canReadLiveFileSource())return;
         var inflight=codeSourceInFlightRef.current;
+        var hydrationId=analysisHydrationIdRef.current;
         nextCodeSourceReads(missing.map(function(file){return file.path;}),inflight).forEach(function(path){
             inflight[path]=true;
             readLiveFileSource(path).then(function(content){
-                if(typeof content==='string')rememberHydratedSources([{path:path,content:content}]);
+                if(typeof content==='string')rememberHydratedSources([{path:path,content:content,hydrationId:hydrationId}]);
             }).then(function(){delete inflight[path];},function(){delete inflight[path];});
         });
     },[codeViewFiles,localSourceKind,cliStatus,repoInfo,localDirHandle]);
@@ -10617,12 +10647,14 @@ function App(){
                     var name=mark.getAttribute('data-sym');
                     setActiveSymbol(function(prev){return prev===name?null:name;});
                 }
-            }},body),
+            },onScroll:isPrimary&&cardSize.clipped?function(e){setCodePillScroll(e.currentTarget.scrollTop);}:undefined},body),
             pills.map(function(pill){
+                var top=codeCardPillViewTop(pill.top,isPrimary?codePillScroll:0,cardSize.height,CODE_CARD_HEAD_HEIGHT);
+                if(top==null)return null;
                 return React.createElement('button',{
                     key:pill.name+':'+pill.line,
                     className:'code-line-pill '+pill.kind+(activeSymbol===pill.name?' active':''),
-                    style:{top:pill.top+'px'},
+                    style:{top:top+'px'},
                     title:pill.name,
                     onClick:function(e){
                         e.stopPropagation();

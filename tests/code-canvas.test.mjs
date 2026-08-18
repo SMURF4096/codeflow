@@ -583,6 +583,29 @@ test('empty source files count as loaded after hydration', () => {
   assert.equal(context.fileSourceDisplayState(merged.files[0], true), 'ready');
 });
 
+test('obsolete hydration results do not replace a new analysis file', () => {
+  const repoA = { sourceType: 'github', sourceKey: 'owner/alpha' };
+  const repoB = { sourceType: 'github', sourceKey: 'owner/beta' };
+  const data = { files: [{ path: 'src/index.js', name: 'index.js' }], connections: [] };
+  const idA = context.analysisHydrationId(repoA, data, null);
+  const idB = context.analysisHydrationId(repoB, data, null);
+  assert.notEqual(idA, idB);
+  assert.equal(context.hydratedSourceIsCurrent({ path: 'src/index.js', content: 'A', hydrationId: idA }, idB), false);
+  const rejected = context.mergeHydratedFileSources(data, [{ path: 'src/index.js', content: 'from-alpha', hydrationId: idA }], idB);
+  assert.equal(Object.prototype.hasOwnProperty.call(rejected.files[0], 'content'), false);
+  const accepted = context.mergeHydratedFileSources(data, [{ path: 'src/index.js', content: 'from-beta', hydrationId: idB }], idB);
+  assert.equal(accepted.files[0].content, 'from-beta');
+});
+
+test('symbol pills track scroll and hide when clipped away', () => {
+  const visible = context.codeCardPillViewTop(80, 0, 400, 42);
+  assert.equal(visible, 80);
+  assert.equal(context.codeCardPillViewTop(80, 20, 400, 42), 60);
+  assert.equal(context.codeCardPillViewTop(2000, 0, 1840, 42), null);
+  assert.equal(context.codeCardPillViewTop(2000, 1600, 1840, 42), 400);
+  assert.equal(context.codeCardPillViewTop(30, 0, 400, 42), null);
+});
+
 test('empty code cards always render from an array of lines', () => {
   assert.deepEqual(J(context.asCodeLines('')), ['']);
   assert.deepEqual(J(context.asCodeLines(null)), ['']);
@@ -612,6 +635,9 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /nextCodeSourceReads/);
   assert.match(htmlSource, /codeViewWheelPanDelta/);
   assert.match(htmlSource, /codeSourceInFlightRef/);
+  assert.match(htmlSource, /analysisHydrationId/);
+  assert.match(htmlSource, /hydratedSourceIsCurrent/);
+  assert.match(htmlSource, /codeCardPillViewTop/);
   assert.match(htmlSource, /openCodeCardPaths/);
   assert.match(htmlSource, /filesForOpenedCodePaths/);
   assert.match(htmlSource, /applyOpenedCardPlacements/);
