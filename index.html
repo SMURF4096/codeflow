@@ -5726,6 +5726,28 @@ function getConnectedFilePaths(path,connections){
 
 var CODE_CARD_MAX=12;
 
+function defaultCodeViewSeed(data,folderFilter){
+    if(!data||!data.files||!data.files.length)return null;
+    var filtered=folderFilter?data.files.filter(function(f){return f.folder===folderFilter||f.folder.startsWith(folderFilter+'/');}):data.files;
+    if(!filtered.length)return null;
+    var byPath=Object.create(null);
+    filtered.forEach(function(f){byPath[f.path]=f;});
+    var counts=Object.create(null);
+    (data.connections||[]).forEach(function(c){
+        var src=typeof c.source==='object'?c.source.id:c.source;
+        var tgt=typeof c.target==='object'?c.target.id:c.target;
+        if(byPath[src])counts[src]=(counts[src]||0)+1;
+        if(byPath[tgt])counts[tgt]=(counts[tgt]||0)+1;
+    });
+    var best=filtered[0];
+    var bestN=counts[best.path]||0;
+    filtered.forEach(function(file){
+        var n=counts[file.path]||0;
+        if(n>bestN){best=file;bestN=n;}
+    });
+    return best.path;
+}
+
 function collectVisibleCodeFiles(selectedPath,data,folderFilter,limit){
     if(!data||!data.files)return[];
     var filtered=folderFilter?data.files.filter(function(f){return f.folder===folderFilter||f.folder.startsWith(folderFilter+'/');}):data.files;
@@ -5737,6 +5759,7 @@ function collectVisibleCodeFiles(selectedPath,data,folderFilter,limit){
         if(!file||ordered.some(function(f){return f.path===path;}))return;
         ordered.push(file);
     }
+    if(!selectedPath)selectedPath=defaultCodeViewSeed(data,folderFilter);
     if(selectedPath)add(selectedPath);
     getConnectedFilePaths(selectedPath,data.connections).slice().sort(function(a,b){
         var loadedA=fileHasLoadedSource(byPath[a])?0:1;
@@ -8112,6 +8135,11 @@ function App(){
         if(!data)return[];
         return collectVisibleCodeFiles(selected&&selected.path,data,folderFilter);
     },[data,selected,folderFilter]);
+    useEffect(function(){
+        if(graphConfig.vizType!=='code'||!data||selected)return;
+        var seed=defaultCodeViewSeed(data,folderFilter);
+        if(seed&&selectFileRef.current)selectFileRef.current(seed);
+    },[graphConfig.vizType,data,folderFilter,selected]);
     var codeViewFileTotal=useMemo(function(){
         if(!data)return 0;
         return countVisibleCodeFiles(selected&&selected.path,data,folderFilter);
@@ -8315,7 +8343,7 @@ function App(){
         node.classed('has-code-card',function(d){return keepReadable&&codeCardPathsRef.current.has(d.id);});
         node.classed('code-faded',function(d){return keepReadable&&codeCardPathsRef.current.size>0&&!codeCardPathsRef.current.has(d.id);});
         node.on('mouseenter',function(e,d){if(keepReadable&&codeCardPathsRef.current.has(d.id))return;var r=svgRef.current.getBoundingClientRect();setTooltip({x:e.clientX-r.left+10,y:e.clientY-r.top,title:d.name,content:d.fnCount+' functions\n'+d.layer+' layer\n'+d.churn+' recent commits'});}).on('mouseleave',function(){setTooltip(null);});
-        svg.on('click',function(e){if(e.target===svgRef.current){setSelected(null);setBlastRadius(null);link.attr('stroke',theme==='light'?'#ccc':'#333').attr('stroke-opacity',0.4);node.selectAll('.nc').attr('opacity',1).attr('fill',getC);}});
+        svg.on('click',function(e){if(e.target===svgRef.current){if(keepReadable)return;setSelected(null);setBlastRadius(null);link.attr('stroke',theme==='light'?'#ccc':'#333').attr('stroke-opacity',0.4);node.selectAll('.nc').attr('opacity',1).attr('fill',getC);}});
         node.append('circle').attr('class','nc').attr('r',getR).attr('fill',getC).attr('stroke',function(d){var c=d3.color(getC(d));return c?c.brighter(0.3):'#fff';}).attr('stroke-width',1.5);
         // Hide labels for large graphs to reduce DOM overhead. Code view keeps titles readable.
         if(keepReadable||!isLargeGraph||graphConfig.showLabels){
@@ -8377,13 +8405,19 @@ function App(){
             pinCodeCardsToFolderLayout();
             refreshCodeCardForces();
             syncCodeCards();
+            var fit=computeGraphFitTransform();
+            if(fit)svg.call(zoom.transform,fit);
         }
         return function(){if(simRef.current)simRef.current.stop();};
     },[data,colorMap,colorMode,theme,folderFilter,graphConfig]);
 
     useLayoutEffect(function(){
-        if(graphConfig.vizType!=='code')return;
+        if(graphConfig.vizType!=='code'){
+            codeCardLayoutKeyRef.current='';
+            return;
+        }
         var layoutKey=codeViewFiles.map(function(file){return file.path;}).join('|');
+        var firstOpen=!codeCardLayoutKeyRef.current;
         if(layoutKey!==codeCardLayoutKeyRef.current){
             codeCardLayoutKeyRef.current=layoutKey;
             codeCardUserPinnedRef.current=new Set();
@@ -8392,6 +8426,10 @@ function App(){
         pinCodeCardsToFolderLayout();
         refreshCodeCardForces();
         syncCodeCards();
+        if(firstOpen&&codeViewFiles.length&&zoomRef.current&&svgRef.current){
+            var fit=computeGraphFitTransform();
+            if(fit)d3.select(svgRef.current).call(zoomRef.current.transform,fit);
+        }
     },[codeViewFiles,graphConfig.vizType,graphConfig.linkDist]);
 
     // 3D Force Graph Hook
@@ -9930,7 +9968,7 @@ function App(){
                 codeViewFiles.map(function(file){return renderCodeFileCard(file,file.path===primaryPath);})
             ),
             React.createElement('div',{className:'code-canvas-hud'},
-                React.createElement('div',{className:'code-canvas-hint'},selected?(codeViewFileTotal>codeViewFiles.length?'Showing '+codeViewFiles.length+' of '+codeViewFileTotal+' connected files.':'Click a symbol to highlight it across these cards.'):'Click a node to open connected files. Canvas zoom pans the full file.'),
+                React.createElement('div',{className:'code-canvas-hint'},codeViewFiles.length?(codeViewFileTotal>codeViewFiles.length?'Showing '+codeViewFiles.length+' of '+codeViewFileTotal+' connected files.':'File cards on the canvas. Click another node to shift the set.'):'No files to open as cards.'),
                 codeViewSymbols.length>0&&React.createElement('div',{className:'code-sym-list'},
                     codeViewSymbols.map(function(sym){
                         return React.createElement('button',{key:sym.name,className:'code-sym-chip '+sym.kind+(activeSymbol===sym.name?' active':''),title:sym.name,onClick:function(){setActiveSymbol(function(prev){return prev===sym.name?null:sym.name;});}},sym.name);

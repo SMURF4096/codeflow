@@ -88,7 +88,25 @@ test('visible code files are not capped at four', () => {
   const connections = files.slice(1).map((file) => ({ source: 'a.js', target: file.path, fn: 'a' }));
   const visible = context.collectVisibleCodeFiles('a.js', { files, connections }, 'src');
   assert.deepEqual(J(visible).map((f) => f.path), ['a.js', 'b.js', 'c.js', 'd.js', 'e.js', 'f.js']);
-  assert.equal(context.collectVisibleCodeFiles(null, { files, connections }, 'src').length, 0);
+  const seeded = context.collectVisibleCodeFiles(null, { files, connections }, 'src');
+  assert.equal(seeded[0].path, 'a.js');
+  assert.equal(seeded.length, 6);
+});
+
+test('Code view seeds cards without waiting for a click', () => {
+  const files = [
+    { path: 'leaf.js', folder: 'src', name: 'leaf.js', functions: [] },
+    { path: 'hub.js', folder: 'src', name: 'hub.js', functions: [] },
+    { path: 'other.js', folder: 'lib', name: 'other.js', functions: [] }
+  ];
+  const connections = [
+    { source: 'hub.js', target: 'leaf.js', fn: 'h' },
+    { source: 'hub.js', target: 'other.js', fn: 'h' }
+  ];
+  assert.equal(context.defaultCodeViewSeed({ files, connections }, 'src'), 'hub.js');
+  const visible = context.collectVisibleCodeFiles(null, { files, connections }, 'src');
+  assert.deepEqual(J(visible).map((f) => f.path), ['hub.js', 'leaf.js']);
+  assert.equal(context.defaultCodeViewSeed({ files: [], connections: [] }, null), null);
 });
 
 test('high-degree neighborhoods stay within the card cap', () => {
@@ -365,6 +383,7 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /data-code-card/);
   assert.match(htmlSource, /applyCodeCardLayout/);
   assert.match(htmlSource, /layoutCodeCardsByFolder/);
+  assert.match(htmlSource, /defaultCodeViewSeed/);
   assert.match(htmlSource, /className:'code-sym-list'/);
   assert.doesNotMatch(htmlSource, /className:'code-sym-row'/);
   assert.match(htmlSource, /CODE_CARD_MAX/);
