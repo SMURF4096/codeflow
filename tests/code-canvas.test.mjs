@@ -115,9 +115,49 @@ test('a drag does not select the card on the leftover click', () => {
   assert.deepEqual(J(context.consumeCodeCardClick(false)), { ignore: false, ignoreNextClick: false });
 });
 
+test('code cards size to the file instead of a fixed pane', () => {
+  const empty = context.codeCardSize(null);
+  assert.equal(empty.width, context.CODE_CARD_MIN_WIDTH);
+  assert.equal(empty.height, context.CODE_CARD_MIN_HEIGHT);
+  assert.equal(empty.clipped, false);
+  const short = context.codeCardSize({ content: 'const x = 1;\n' });
+  const tall = context.codeCardSize({ content: Array(40).fill('const value = 1;').join('\n') });
+  assert.ok(tall.height > short.height);
+  const huge = context.codeCardSize({ content: Array(400).fill('x'.repeat(120)).join('\n') });
+  assert.equal(huge.width, context.CODE_CARD_MAX_WIDTH);
+  assert.equal(huge.height, context.CODE_CARD_MAX_HEIGHT);
+  assert.equal(huge.clipped, true);
+});
+
+test('opened code cards auto-align by directory', () => {
+  const files = [
+    { path: 'src/a.js', folder: 'src' },
+    { path: 'src/b.js', folder: 'src' },
+    { path: 'lib/c.js', folder: 'lib' }
+  ];
+  const sizes = {
+    'src/a.js': { width: 320, height: 200 },
+    'src/b.js': { width: 320, height: 200 },
+    'lib/c.js': { width: 320, height: 200 }
+  };
+  const layout = context.layoutCodeCardsByFolder(files, sizes, { originX: 0, originY: 0, gapX: 40, groupGapX: 80 });
+  assert.ok(layout['src/a.js']);
+  assert.ok(layout['src/b.js']);
+  assert.ok(layout['lib/c.js']);
+  assert.equal(layout['src/a.js'].folder, 'src');
+  assert.equal(layout['lib/c.js'].folder, 'lib');
+  assert.ok(Math.abs(layout['src/a.js'].x - layout['src/b.js'].x) >= 320 || Math.abs(layout['src/a.js'].y - layout['src/b.js'].y) >= 200);
+  assert.ok(layout['lib/c.js'].x !== layout['src/a.js'].x);
+  const bounds = context.codeFolderCardBounds([
+    { id: 'src/a.js', x: layout['src/a.js'].x, y: layout['src/a.js'].y },
+    { id: 'src/b.js', x: layout['src/b.js'].x, y: layout['src/b.js'].y }
+  ], sizes, 10);
+  assert.ok(bounds.width >= 320);
+  assert.ok(bounds.height >= 200);
+});
+
 test('code cards sit on the canvas transform, not a split pane', () => {
-  assert.deepEqual(J(context.codeCardSize(false)), { width: 320, height: 220 });
-  assert.ok(context.codeCardCollisionRadius(true) > 100);
+  assert.ok(context.codeCardCollisionRadius({ width: 320, height: 220 }) > 100);
   assert.equal(context.codeCanvasTransformStyle({ k: 0.5, x: 10, y: 20 }), 'translate(10px,20px) scale(0.5)');
   assert.deepEqual(J(context.codeCardAnchorStyle({ x: 400, y: 300 }, { width: 320, height: 220 })), {
     visibility: 'visible',
@@ -128,13 +168,15 @@ test('code cards sit on the canvas transform, not a split pane', () => {
   const card = {
     getAttribute(name) { return name === 'data-code-card' ? 'a.js' : null; },
     style: {},
+    classList: { add() {}, remove() {} },
     querySelector() { return title; }
   };
   const layer = {
     style: {},
     querySelectorAll() { return [card]; }
   };
-  const placed = context.applyCodeCardLayout(layer, { 'a.js': { x: 400, y: 300 } }, { k: 0.5, x: 12, y: 8 }, 'a.js');
+  const sizes = { 'a.js': { width: 380, height: 280 } };
+  const placed = context.applyCodeCardLayout(layer, { 'a.js': { x: 400, y: 300 } }, { k: 0.5, x: 12, y: 8 }, sizes);
   assert.equal(placed.placed, 1);
   assert.equal(placed.titleScale, 2);
   assert.equal(layer.style.transform, 'translate(12px,8px) scale(0.5)');
@@ -322,6 +364,9 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.doesNotMatch(htmlSource, /className:'code-split'/);
   assert.match(htmlSource, /data-code-card/);
   assert.match(htmlSource, /applyCodeCardLayout/);
+  assert.match(htmlSource, /layoutCodeCardsByFolder/);
+  assert.match(htmlSource, /className:'code-sym-list'/);
+  assert.doesNotMatch(htmlSource, /className:'code-sym-row'/);
   assert.match(htmlSource, /CODE_CARD_MAX/);
   assert.match(htmlSource, /consumeCodeCardClick/);
   assert.match(htmlSource, /vizType==='code'/);

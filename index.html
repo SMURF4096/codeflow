@@ -457,26 +457,29 @@ body{font-family:'JetBrains Mono',monospace;background:var(--bg0);color:var(--t0
 .code-canvas{position:relative;width:100%;height:100%;min-width:0;min-height:0;overflow:hidden}
 .code-canvas svg{width:100%;height:100%;display:block}
 .code-canvas-cards{position:absolute;inset:0;pointer-events:none;transform-origin:0 0;z-index:4}
-.code-canvas-hud{position:absolute;top:52px;left:50%;transform:translateX(-50%);z-index:51;display:flex;flex-direction:column;align-items:center;gap:6px;max-width:min(720px,calc(100% - 160px));pointer-events:none}
-.code-canvas-hint{font-size:10px;color:var(--t3);background:var(--bg1);border:1px solid var(--border);border-radius:8px;padding:6px 10px;text-align:center;line-height:1.4}
-.code-sym-row{display:flex;flex-wrap:wrap;gap:4px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg1);max-height:72px;overflow:auto;pointer-events:auto;justify-content:center}
-.code-sym-chip{font-size:9px;padding:3px 7px;border-radius:999px;border:1px solid var(--border);background:var(--bg0);color:var(--t2);cursor:pointer;font-family:inherit}
+.code-canvas-hud{position:absolute;top:56px;left:12px;z-index:51;display:flex;flex-direction:column;align-items:stretch;gap:6px;width:168px;max-width:calc(100% - 24px);pointer-events:none}
+.code-canvas-hint{font-size:10px;color:var(--t3);background:var(--bg1);border:1px solid var(--border);border-radius:8px;padding:6px 8px;line-height:1.4}
+.code-sym-list{display:flex;flex-direction:column;gap:2px;padding:6px;border:1px solid var(--border);border-radius:8px;background:var(--bg1);max-height:min(420px,calc(100% - 140px));overflow-x:hidden;overflow-y:auto;pointer-events:auto}
+.code-sym-chip{display:block;width:100%;box-sizing:border-box;font-size:9px;padding:4px 7px;border-radius:6px;border:1px solid var(--border);background:var(--bg0);color:var(--t2);cursor:pointer;font-family:inherit;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .code-sym-chip:hover{border-color:var(--acc);color:var(--acc)}
 .code-sym-chip.active{background:var(--accbg);border-color:var(--acc);color:var(--acc)}
 .code-sym-chip.fn{box-shadow:inset 3px 0 0 #61afef}
 .code-sym-chip.import{box-shadow:inset 3px 0 0 #c678dd}
 .code-sym-chip.export{box-shadow:inset 3px 0 0 #98c379}
 .code-sym-chip.var{box-shadow:inset 3px 0 0 #e06c75}
-.code-card{position:absolute;width:320px;height:220px;border:1px solid var(--border);border-radius:8px;background:var(--bg0);overflow:hidden;display:flex;flex-direction:column;pointer-events:auto;box-shadow:0 10px 28px rgba(0,0,0,0.28);visibility:hidden;user-select:none}
-.code-card.primary{width:380px;height:280px;border-color:var(--acc);box-shadow:0 12px 32px rgba(0,0,0,0.34),0 0 0 1px var(--acc)}
+.code-card{position:absolute;border:1px solid var(--border);border-radius:8px;background:var(--bg0);overflow:hidden;display:flex;flex-direction:column;pointer-events:auto;box-shadow:0 10px 28px rgba(0,0,0,0.28);visibility:hidden;user-select:none}
+.code-card.primary{border-color:var(--acc);box-shadow:0 12px 32px rgba(0,0,0,0.34),0 0 0 1px var(--acc)}
 .code-card.linked{opacity:0.98}
 .code-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;background:var(--bg2);border-bottom:1px solid var(--border2);cursor:grab;touch-action:none;flex-shrink:0}
 .code-card-head:active{cursor:grabbing}
 .code-card-name{font-size:11px;font-weight:600;color:var(--t0);transform-origin:left center;display:inline-block;white-space:nowrap}
 .code-card-path{font-size:9px;color:var(--t3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:240px}
-.code-card-body{flex:1;overflow:auto;min-height:0;touch-action:pan-y;user-select:text}
+.code-card-body{flex:1;overflow:hidden;min-height:0;user-select:text}
+.code-card.clipped .code-card-body{overflow:auto;touch-action:pan-y}
 .code-card-body .file-preview-code{padding:8px 0;font-size:11px}
 .has-code-card .nc,.has-code-card .node-label{opacity:0!important;pointer-events:none}
+.code-faded .nc{opacity:0.18!important}
+.code-faded .node-label{opacity:0.35!important}
 .sym-mark{border-radius:3px;padding:0 1px;cursor:pointer}
 .sym-mark.fn{background:rgba(97,175,239,0.16)}
 .sym-mark.import{background:rgba(198,120,221,0.16)}
@@ -501,7 +504,7 @@ body{font-family:'JetBrains Mono',monospace;background:var(--bg0);color:var(--t0
 .github-hint button{background:none;border:none;color:var(--acc);cursor:pointer;font-family:inherit;font-size:9px;padding:0;text-decoration:underline}
 .cli-chip{padding:4px 8px;background:var(--accbg);border:1px solid var(--acc);border-radius:6px;font-size:9px;color:var(--acc)}
 @media(max-width:980px){
-.code-canvas-hud{top:56px;max-width:calc(100% - 24px)}
+.code-canvas-hud{top:56px;left:10px;width:140px}
 }
 .auth-select{padding:6px 10px;background:var(--bg0);border:1px solid var(--border);border-radius:6px;color:var(--t0);font-family:inherit;font-size:10px;cursor:pointer;min-width:100px;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b8b95' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center;padding-right:28px}
 .auth-select:focus{outline:none;border-color:var(--acc)}
@@ -5757,26 +5760,112 @@ function consumeCodeCardClick(ignoreNextClick){
     return {ignore:!!ignoreNextClick,ignoreNextClick:false};
 }
 
-var CODE_CARD_WIDTH=320;
-var CODE_CARD_HEIGHT=220;
-var CODE_CARD_PRIMARY_WIDTH=380;
-var CODE_CARD_PRIMARY_HEIGHT=280;
+var CODE_CARD_MIN_WIDTH=320;
+var CODE_CARD_MAX_WIDTH=720;
+var CODE_CARD_MIN_HEIGHT=160;
+var CODE_CARD_MAX_HEIGHT=1840;
+var CODE_CARD_LINE_HEIGHT=19;
+var CODE_CARD_CHAR_WIDTH=7;
+var CODE_CARD_HEAD_HEIGHT=42;
+var CODE_CARD_BODY_PAD=16;
+var CODE_CARD_GUTTER=72;
 
-function codeCardSize(isPrimary){
-    return isPrimary
-        ?{width:CODE_CARD_PRIMARY_WIDTH,height:CODE_CARD_PRIMARY_HEIGHT}
-        :{width:CODE_CARD_WIDTH,height:CODE_CARD_HEIGHT};
+function codeCardContentMetrics(file){
+    var content=file&&typeof file.content==='string'?file.content:'';
+    var lines=content?content.split('\n'):[''];
+    var maxLineChars=0;
+    for(var i=0;i<lines.length;i++){
+        var n=String(lines[i]).length;
+        if(n>maxLineChars)maxLineChars=n;
+    }
+    return{lines:Math.max(1,lines.length),maxLineChars:maxLineChars};
 }
 
-function codeCardCollisionRadius(isCard){
-    if(!isCard)return 20;
-    var size=codeCardSize(false);
+function codeCardSize(file){
+    var metrics=codeCardContentMetrics(file);
+    var width=Math.max(CODE_CARD_MIN_WIDTH,Math.min(CODE_CARD_MAX_WIDTH,CODE_CARD_GUTTER+metrics.maxLineChars*CODE_CARD_CHAR_WIDTH));
+    var naturalHeight=CODE_CARD_HEAD_HEIGHT+CODE_CARD_BODY_PAD+metrics.lines*CODE_CARD_LINE_HEIGHT;
+    var height=Math.max(CODE_CARD_MIN_HEIGHT,Math.min(CODE_CARD_MAX_HEIGHT,naturalHeight));
+    return{width:width,height:height,clipped:naturalHeight>CODE_CARD_MAX_HEIGHT};
+}
+
+function codeCardCollisionRadius(size){
+    size=size||codeCardSize(null);
     return Math.round(Math.hypot(size.width,size.height)/2)+18;
 }
 
-function liveCodeCollideRadius(node,isCard){
-    if(isCard)return codeCardCollisionRadius(true);
+function liveCodeCollideRadius(node,size){
+    if(size)return codeCardCollisionRadius(size);
     return Math.max(8,Math.min(24,5+((node&&node.fnCount)||0)*0.8))+12;
+}
+
+function layoutCodeCardsByFolder(files,sizesByPath,options){
+    options=options||{};
+    var gapX=options.gapX==null?56:options.gapX;
+    var gapY=options.gapY==null?48:options.gapY;
+    var groupGapX=options.groupGapX==null?96:options.groupGapX;
+    var groupGapY=options.groupGapY==null?120:options.groupGapY;
+    var originX=options.originX==null?80:options.originX;
+    var originY=options.originY==null?80:options.originY;
+    var maxRowWidth=options.maxRowWidth==null?2400:options.maxRowWidth;
+    var groups=Object.create(null);
+    var folderOrder=[];
+    (files||[]).forEach(function(file){
+        var folder=file&&file.folder?file.folder:'root';
+        if(!groups[folder]){groups[folder]=[];folderOrder.push(folder);}
+        groups[folder].push(file);
+    });
+    var placed=Object.create(null);
+    var gx=originX,gy=originY,rowH=0;
+    folderOrder.forEach(function(folder){
+        var items=groups[folder];
+        var cols=Math.max(1,Math.ceil(Math.sqrt(items.length)));
+        var colWidths=[],rowHeights=[];
+        items.forEach(function(file,i){
+            var size=(sizesByPath&&sizesByPath[file.path])||codeCardSize(file);
+            var col=i%cols,row=Math.floor(i/cols);
+            colWidths[col]=Math.max(colWidths[col]||0,size.width);
+            rowHeights[row]=Math.max(rowHeights[row]||0,size.height);
+        });
+        var colX=[],x=0;
+        colWidths.forEach(function(w){colX.push(x);x+=w+gapX;});
+        var rowY=[],y=36;
+        rowHeights.forEach(function(h){rowY.push(y);y+=h+gapY;});
+        var groupW=Math.max(0,x-gapX);
+        var groupH=Math.max(0,y-gapY);
+        if(gx>originX&&gx+groupW>originX+maxRowWidth){
+            gx=originX;
+            gy+=rowH+groupGapY;
+            rowH=0;
+        }
+        items.forEach(function(file,i){
+            var size=(sizesByPath&&sizesByPath[file.path])||codeCardSize(file);
+            var col=i%cols,row=Math.floor(i/cols);
+            placed[file.path]={
+                x:gx+colX[col]+size.width/2,
+                y:gy+rowY[row]+size.height/2,
+                folder:folder
+            };
+        });
+        gx+=groupW+groupGapX;
+        rowH=Math.max(rowH,groupH);
+    });
+    return placed;
+}
+
+function codeFolderCardBounds(nodes,sizesByPath,pad){
+    pad=pad==null?24:pad;
+    var minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+    (nodes||[]).forEach(function(node){
+        if(!node||!isFinite(node.x)||!isFinite(node.y))return;
+        var size=(sizesByPath&&sizesByPath[node.id])||codeCardSize(null);
+        minX=Math.min(minX,node.x-size.width/2);
+        minY=Math.min(minY,node.y-size.height/2);
+        maxX=Math.max(maxX,node.x+size.width/2);
+        maxY=Math.max(maxY,node.y+size.height/2);
+    });
+    if(!isFinite(minX))return null;
+    return{x:minX-pad,y:minY-pad-22,width:maxX-minX+pad*2,height:maxY-minY+pad*2+22};
 }
 
 function codeCanvasTransformStyle(transform){
@@ -5791,7 +5880,7 @@ function codeCanvasTransformStyle(transform){
 }
 
 function codeCardAnchorStyle(node,size){
-    size=size||codeCardSize(false);
+    size=size||codeCardSize(null);
     if(!node||!isFinite(node.x)||!isFinite(node.y))return{visibility:'hidden',left:'0px',top:'0px'};
     return{
         visibility:'visible',
@@ -5800,7 +5889,7 @@ function codeCardAnchorStyle(node,size){
     };
 }
 
-function applyCodeCardLayout(layer,nodesById,transform,primaryPath){
+function applyCodeCardLayout(layer,nodesById,transform,sizesByPath){
     if(!layer)return{placed:0,titleScale:1};
     layer.style.transform=codeCanvasTransformStyle(transform);
     var k=transform&&isFinite(Number(transform.k))?Number(transform.k):1;
@@ -5809,13 +5898,17 @@ function applyCodeCardLayout(layer,nodesById,transform,primaryPath){
     var placed=0;
     Array.prototype.forEach.call(cards,function(card){
         var path=card.getAttribute('data-code-card');
-        var size=codeCardSize(path===primaryPath);
+        var size=(sizesByPath&&sizesByPath[path])||codeCardSize(null);
         var style=codeCardAnchorStyle(nodesById&&nodesById[path],size);
         card.style.visibility=style.visibility;
         card.style.left=style.left;
         card.style.top=style.top;
         card.style.width=size.width+'px';
         card.style.height=size.height+'px';
+        if(card.classList){
+            if(size.clipped&&card.classList.add)card.classList.add('clipped');
+            else if(card.classList.remove)card.classList.remove('clipped');
+        }
         var title=card.querySelector?card.querySelector('.code-card-name'):null;
         if(title)title.style.transform='scale('+titleScale+')';
         if(style.visibility==='visible')placed++;
@@ -6591,6 +6684,9 @@ function App(){
     var codeZoomTransformRef=useRef({k:1,x:0,y:0});
     var graphNodesByIdRef=useRef(Object.create(null));
     var selectedPathRef=useRef(null);
+    var codeCardSizesRef=useRef(Object.create(null));
+    var codeCardUserPinnedRef=useRef(new Set());
+    var codeCardLayoutKeyRef=useRef('');
     var codeCardIgnoreClickRef=useRef(false);
     var pendingRecentDeleteTimerRef=useRef(null);
     var zipInputRef=useRef(null);
@@ -8023,8 +8119,31 @@ function App(){
     selectedPathRef.current=selected&&selected.path;
     codeCardPathsRef.current=new Set(codeViewFiles.map(function(file){return file.path;}));
 
+    function currentCodeCardSizes(){
+        var sizes=Object.create(null);
+        codeViewFiles.forEach(function(file){sizes[file.path]=codeCardSize(file);});
+        codeCardSizesRef.current=sizes;
+        return sizes;
+    }
+
     function syncCodeCards(){
-        applyCodeCardLayout(codeCardsLayerRef.current,graphNodesByIdRef.current,codeZoomTransformRef.current,selectedPathRef.current);
+        applyCodeCardLayout(codeCardsLayerRef.current,graphNodesByIdRef.current,codeZoomTransformRef.current,codeCardSizesRef.current);
+    }
+
+    function pinCodeCardsToFolderLayout(){
+        var sim=simRef.current;
+        if(!sim)return;
+        var sizes=currentCodeCardSizes();
+        var layout=layoutCodeCardsByFolder(codeViewFiles,sizes);
+        sim.nodes().forEach(function(node){
+            var pos=layout[node.id];
+            if(!pos){
+                if(!codeCardUserPinnedRef.current.has(node.id)){node.fx=null;node.fy=null;}
+                return;
+            }
+            if(codeCardUserPinnedRef.current.has(node.id))return;
+            node.fx=pos.x;node.fy=pos.y;node.x=pos.x;node.y=pos.y;
+        });
     }
 
     function refreshCodeCardForces(){
@@ -8032,7 +8151,7 @@ function App(){
         if(!sim)return;
         var collide=sim.force('collision');
         if(collide&&typeof collide.radius==='function'){
-            collide.radius(function(d){return liveCodeCollideRadius(d,codeCardPathsRef.current.has(d.id));});
+            collide.radius(function(d){return liveCodeCollideRadius(d,codeCardPathsRef.current.has(d.id)?codeCardSizesRef.current[d.id]:null);});
         }
         var linkForce=sim.force('link');
         if(linkForce&&typeof linkForce.distance==='function'){
@@ -8045,6 +8164,7 @@ function App(){
         }
         if(nodesRef.current){
             nodesRef.current.classed('has-code-card',function(d){return codeCardPathsRef.current.has(d.id);});
+            nodesRef.current.classed('code-faded',function(d){return codeCardPathsRef.current.size>0&&!codeCardPathsRef.current.has(d.id);});
         }
     }
 
@@ -8103,7 +8223,7 @@ function App(){
         codeZoomTransformRef.current={k:1,x:0,y:0};
         graphNodesByIdRef.current=Object.create(null);
         nodes.forEach(function(n){graphNodesByIdRef.current[n.id]=n;});
-        function collideR(d){return liveCodeCollideRadius(d,keepReadable&&codeCardPathsRef.current.has(d.id));}
+        function collideR(d){return liveCodeCollideRadius(d,keepReadable&&codeCardPathsRef.current.has(d.id)?codeCardSizesRef.current[d.id]:null);}
         function applyReadableLabels(k){
             if(!keepReadable)return;
             var s=readableLabelScale(k);
@@ -8193,6 +8313,7 @@ function App(){
         node.call(d3.drag().on('start',function(e,d){if(!e.active)sim.alphaTarget(0.1).restart();d.fx=d.x;d.fy=d.y;}).on('drag',function(e,d){d.fx=e.x;d.fy=e.y;}).on('end',function(e,d){if(!e.active)sim.alphaTarget(0);d.fx=null;d.fy=null;}));
         node.on('click',function(e,d){e.stopPropagation();if(selectFileRef.current)selectFileRef.current(d.id);});
         node.classed('has-code-card',function(d){return keepReadable&&codeCardPathsRef.current.has(d.id);});
+        node.classed('code-faded',function(d){return keepReadable&&codeCardPathsRef.current.size>0&&!codeCardPathsRef.current.has(d.id);});
         node.on('mouseenter',function(e,d){if(keepReadable&&codeCardPathsRef.current.has(d.id))return;var r=svgRef.current.getBoundingClientRect();setTooltip({x:e.clientX-r.left+10,y:e.clientY-r.top,title:d.name,content:d.fnCount+' functions\n'+d.layer+' layer\n'+d.churn+' recent commits'});}).on('mouseleave',function(){setTooltip(null);});
         svg.on('click',function(e){if(e.target===svgRef.current){setSelected(null);setBlastRadius(null);link.attr('stroke',theme==='light'?'#ccc':'#333').attr('stroke-opacity',0.4);node.selectAll('.nc').attr('opacity',1).attr('fill',getC);}});
         node.append('circle').attr('class','nc').attr('r',getR).attr('fill',getC).attr('stroke',function(d){var c=d3.color(getC(d));return c?c.brighter(0.3):'#fff';}).attr('stroke-width',1.5);
@@ -8208,19 +8329,26 @@ function App(){
             folders.forEach(function(f){
                 var fn=nodesByFolder[f];
                 if(!fn||fn.length<1)return;
+                var cardNodes=keepReadable?fn.filter(function(n){return codeCardPathsRef.current.has(n.id);}):[];
+                var color=colorMap[f]||COLORS[folders.indexOf(f)%COLORS.length];
+                if(cardNodes.length){
+                    var bounds=codeFolderCardBounds(cardNodes,codeCardSizesRef.current,28);
+                    if(bounds){
+                        hullLayer.append('rect').attr('x',bounds.x).attr('y',bounds.y).attr('width',bounds.width).attr('height',bounds.height).attr('rx',14).attr('fill',color).attr('fill-opacity',0.06).attr('stroke',color).attr('stroke-width',2).attr('stroke-opacity',0.35);
+                        hullLayer.append('text').attr('class','hull-label').attr('x',bounds.x+12).attr('y',bounds.y+16).attr('text-anchor','start').attr('fill',color).attr('font-size',keepReadable?'12px':'10px').attr('font-family','JetBrains Mono').attr('font-weight','600').attr('opacity',0.9).text(f||'root');
+                    }
+                    return;
+                }
                 var pts=[];
                 fn.forEach(function(n){
                     if(!n.x||!n.y)return;
-                    var pad=(keepReadable&&codeCardPathsRef.current.has(n.id))?codeCardCollisionRadius(true):30;
-                    pts.push([n.x-pad,n.y-pad],[n.x+pad,n.y-pad],[n.x-pad,n.y+pad],[n.x+pad,n.y+pad]);
+                    pts.push([n.x-30,n.y-30],[n.x+30,n.y-30],[n.x-30,n.y+30],[n.x+30,n.y+30]);
                 });
                 if(pts.length<3)return;
                 var hull=d3.polygonHull(pts);
                 if(hull){
-                    var color=colorMap[f]||COLORS[folders.indexOf(f)%COLORS.length];
                     hullLayer.append('path').attr('d','M'+hull.join('L')+'Z').attr('fill',color).attr('fill-opacity',0.04).attr('stroke',color).attr('stroke-width',2).attr('stroke-opacity',0.25).attr('rx',8);
-                    var hullPad=fn.some(function(n){return keepReadable&&codeCardPathsRef.current.has(n.id);})?codeCardCollisionRadius(true):30;
-                    var cx=d3.mean(fn,function(n){return n.x;}),cy=d3.min(fn,function(n){return n.y;})-hullPad-8;
+                    var cx=d3.mean(fn,function(n){return n.x;}),cy=d3.min(fn,function(n){return n.y;})-38;
                     hullLayer.append('text').attr('class','hull-label').attr('x',cx).attr('y',cy).attr('text-anchor','middle').attr('fill',color).attr('font-size',keepReadable?'11px':'10px').attr('font-family','JetBrains Mono').attr('font-weight','600').attr('opacity',0.85).text(f||'root');
                 }
             });
@@ -8245,6 +8373,8 @@ function App(){
         node.selectAll('text').attr('opacity',(keepReadable||graphConfig.showLabels)?1:0);
         }catch(e){console.error('Force graph error:',e);svg.selectAll('*').remove();svg.append('text').attr('x',20).attr('y',30).attr('fill','var(--t3)').text('Graph rendering error: '+e.message);}
         if(keepReadable){
+            currentCodeCardSizes();
+            pinCodeCardsToFolderLayout();
             refreshCodeCardForces();
             syncCodeCards();
         }
@@ -8253,8 +8383,14 @@ function App(){
 
     useLayoutEffect(function(){
         if(graphConfig.vizType!=='code')return;
+        var layoutKey=codeViewFiles.map(function(file){return file.path;}).join('|');
+        if(layoutKey!==codeCardLayoutKeyRef.current){
+            codeCardLayoutKeyRef.current=layoutKey;
+            codeCardUserPinnedRef.current=new Set();
+        }
+        currentCodeCardSizes();
+        pinCodeCardsToFolderLayout();
         refreshCodeCardForces();
-        if(simRef.current)simRef.current.alpha(codeCardPathsRef.current.size?0.28:0.12).restart();
         syncCodeCards();
     },[codeViewFiles,graphConfig.vizType,graphConfig.linkDist]);
 
@@ -9157,7 +9293,11 @@ function App(){
     function computeGraphFitTransform(paddingSlack){
         paddingSlack=paddingSlack==null?100:paddingSlack;
         if(graphConfig.vizType==='code'&&codeCardPathsRef.current&&codeCardPathsRef.current.size){
-            paddingSlack=Math.max(paddingSlack,codeCardCollisionRadius(true)*2);
+            var maxR=120;
+            Object.keys(codeCardSizesRef.current||{}).forEach(function(path){
+                maxR=Math.max(maxR,codeCardCollisionRadius(codeCardSizesRef.current[path]));
+            });
+            paddingSlack=Math.max(paddingSlack,maxR*2);
         }
         if(!zoomRef.current||!svgRef.current||!simRef.current)return null;
         var nodes=simRef.current.nodes();
@@ -9711,7 +9851,10 @@ function App(){
         sim.alphaTarget(0.18).restart();
         function onMove(ev){
             var dx=(ev.clientX-startX)/k,dy=(ev.clientY-startY)/k;
-            if(Math.abs(dx)+Math.abs(dy)>3)moved=true;
+            if(Math.abs(dx)+Math.abs(dy)>3){
+                moved=true;
+                codeCardUserPinnedRef.current.add(file.path);
+            }
             node.fx=originX+dx;node.fy=originY+dy;
             syncCodeCards();
         }
@@ -9725,8 +9868,11 @@ function App(){
                 codeCardIgnoreClickRef.current=true;
                 setTimeout(function(){codeCardIgnoreClickRef.current=false;},400);
             }
-            if(end.select){node.fx=null;node.fy=null;selectFile(file.path);}
-            else{node.fx=node.x;node.fy=node.y;}
+            if(moved){
+                codeCardUserPinnedRef.current.add(file.path);
+                node.fx=node.x;node.fy=node.y;
+            }
+            if(end.select)selectFile(file.path);
         }
         window.addEventListener('pointermove',onMove);
         window.addEventListener('pointerup',onUp);
@@ -9752,7 +9898,8 @@ function App(){
                 :(sourceState==='loading'?'Loading source...':'Reopen this project to read source');
             body=React.createElement('div',{className:'empty-desc',style:{padding:'12px'}},message);
         }
-        return React.createElement('div',{key:file.path,'data-code-card':file.path,className:'code-card'+(isPrimary?' primary':' linked'),onClick:function(e){
+        var cardSize=codeCardSize(file);
+        return React.createElement('div',{key:file.path,'data-code-card':file.path,className:'code-card'+(isPrimary?' primary':' linked')+(cardSize.clipped?' clipped':''),onClick:function(e){
             var taken=consumeCodeCardClick(codeCardIgnoreClickRef.current);
             codeCardIgnoreClickRef.current=taken.ignoreNextClick;
             if(taken.ignore){e.stopPropagation();return;}
@@ -9783,10 +9930,10 @@ function App(){
                 codeViewFiles.map(function(file){return renderCodeFileCard(file,file.path===primaryPath);})
             ),
             React.createElement('div',{className:'code-canvas-hud'},
-                React.createElement('div',{className:'code-canvas-hint'},selected?(codeViewFileTotal>codeViewFiles.length?'Showing '+codeViewFiles.length+' of '+codeViewFileTotal+' connected files. Click a symbol to highlight it across these cards.':'Click a symbol to highlight it across these cards'):'Click a node to open its file as a card on the canvas. Connected files open with it.'),
-                codeViewSymbols.length>0&&React.createElement('div',{className:'code-sym-row'},
-                    codeViewSymbols.slice(0,24).map(function(sym){
-                        return React.createElement('button',{key:sym.name,className:'code-sym-chip '+sym.kind+(activeSymbol===sym.name?' active':''),onClick:function(){setActiveSymbol(function(prev){return prev===sym.name?null:sym.name;});}},sym.name);
+                React.createElement('div',{className:'code-canvas-hint'},selected?(codeViewFileTotal>codeViewFiles.length?'Showing '+codeViewFiles.length+' of '+codeViewFileTotal+' connected files.':'Click a symbol to highlight it across these cards.'):'Click a node to open connected files. Canvas zoom pans the full file.'),
+                codeViewSymbols.length>0&&React.createElement('div',{className:'code-sym-list'},
+                    codeViewSymbols.map(function(sym){
+                        return React.createElement('button',{key:sym.name,className:'code-sym-chip '+sym.kind+(activeSymbol===sym.name?' active':''),title:sym.name,onClick:function(){setActiveSymbol(function(prev){return prev===sym.name?null:sym.name;});}},sym.name);
                     })
                 )
             )
