@@ -5999,7 +5999,7 @@ function appendCodeCardPlacement(placements,file,size,options){
             height:size.height,
             folder:prev.folder||folder
         };
-        return next;
+        return reflowUnpinnedCodeCards(next,options.pinnedPaths,options);
     }
     var same=[];
     var folderLeft=null;
@@ -6034,6 +6034,51 @@ function appendCodeCardPlacement(placements,file,size,options){
         height:size.height,
         folder:folder
     };
+    return reflowUnpinnedCodeCards(next,options.pinnedPaths,options);
+}
+
+function codePathIsPinned(pinnedPaths,path){
+    if(!path||!pinnedPaths)return false;
+    if(typeof pinnedPaths.has==='function')return pinnedPaths.has(path);
+    return !!pinnedPaths[path];
+}
+
+function reflowUnpinnedCodeCards(placements,pinnedPaths,options){
+    options=options||{};
+    var gapY=options.gapY==null?36:options.gapY;
+    var originY=options.originY==null?72:options.originY;
+    var next=placements||Object.create(null);
+    var byFolder=Object.create(null);
+    Object.keys(next).forEach(function(path){
+        var item=next[path];
+        if(!item)return;
+        var folder=item.folder||'root';
+        if(!byFolder[folder])byFolder[folder]=[];
+        byFolder[folder].push(path);
+    });
+    Object.keys(byFolder).forEach(function(folder){
+        var paths=byFolder[folder];
+        paths.sort(function(a,b){
+            var dy=(next[a].top||0)-(next[b].top||0);
+            if(dy)return dy;
+            return a<b?-1:a>b?1:0;
+        });
+        var cursor=originY;
+        paths.forEach(function(path){
+            var item=Object.assign({},next[path]);
+            next[path]=item;
+            if(codePathIsPinned(pinnedPaths,path)){
+                item.x=item.left+item.width/2;
+                item.y=item.top+item.height/2;
+                cursor=Math.max(cursor,item.top+item.height+gapY);
+                return;
+            }
+            item.top=cursor;
+            item.x=item.left+item.width/2;
+            item.y=item.top+item.height/2;
+            cursor=item.top+item.height+gapY;
+        });
+    });
     return next;
 }
 
@@ -6076,6 +6121,19 @@ function layoutOpenedCodeCards(files,prev,sizesByPath,options){
 function codeViewWheelAction(event){
     if(event&&(event.ctrlKey||event.metaKey))return 'zoom';
     return 'pan';
+}
+
+function codeViewWheelPanDelta(deltaX,deltaY,scale){
+    var k=Number(scale);
+    if(!isFinite(k)||k<=0)k=1;
+    return{x:-(Number(deltaX)||0)/k,y:-(Number(deltaY)||0)/k};
+}
+
+function nextCodeSourceReads(neededPaths,inFlight){
+    inFlight=inFlight||Object.create(null);
+    return(neededPaths||[]).filter(function(path){
+        return !!path&&!inFlight[path];
+    });
 }
 
 function codeCardAnchorY(node,size,line){
@@ -7039,6 +7097,7 @@ function App(){
     var openCodeFileRef=useRef(null);
     var codeFilesByPathRef=useRef(Object.create(null));
     var codeCanvasRef=useRef(null);
+    var codeSourceInFlightRef=useRef(Object.create(null));
     var _openedCards=useState([]),openedCodePaths=_openedCards[0],setOpenedCodePaths=_openedCards[1];
     var pendingRecentDeleteTimerRef=useRef(null);
     var zipInputRef=useRef(null);
@@ -8496,6 +8555,7 @@ function App(){
         if(scene===openedSceneRef.current)return;
         openedSceneRef.current=scene;
         codeCardPlacementRef.current=Object.create(null);
+        codeSourceInFlightRef.current=Object.create(null);
         setOpenedCodePaths([]);
         pendingFlyToRef.current=null;
     },[data,folderFilter]);
@@ -8522,7 +8582,8 @@ function App(){
                 zoomRef.current.scaleBy(svg,factor,[e.clientX-rect.left,e.clientY-rect.top]);
                 return;
             }
-            zoomRef.current.translateBy(svg,-e.deltaX,-e.deltaY);
+            var pan=codeViewWheelPanDelta(e.deltaX,e.deltaY,snapshotZoomTransform(codeZoomTransformRef.current).k);
+            zoomRef.current.translateBy(svg,pan.x,pan.y);
         }
         el.addEventListener('wheel',onWheel,{passive:false});
         return function(){el.removeEventListener('wheel',onWheel);};
@@ -8595,7 +8656,9 @@ function App(){
                     return;
                 }
             }
-            placements=appendCodeCardPlacement(placements,file,sizes[file.path]||codeCardSize(file));
+            placements=appendCodeCardPlacement(placements,file,sizes[file.path]||codeCardSize(file),{
+                pinnedPaths:codeCardUserPinnedRef.current
+            });
         });
         var keep=Object.create(null);
         codeViewFiles.forEach(function(file){keep[file.path]=true;});
@@ -8605,6 +8668,7 @@ function App(){
             departed[path]=true;
             delete placements[path];
         });
+        placements=reflowUnpinnedCodeCards(placements,codeCardUserPinnedRef.current);
         codeCardPlacementRef.current=placements;
         sim.nodes().forEach(function(node){
             var pos=placements[node.id];
@@ -8668,16 +8732,13 @@ function App(){
     useEffect(function(){
         var missing=filesNeedingSource(codeViewFiles);
         if(!missing.length||!canReadLiveFileSource())return;
-        var cancelled=false;
-        Promise.all(missing.map(function(file){
-            return readLiveFileSource(file.path).then(function(content){
-                return {path:file.path,content:content};
-            });
-        })).then(function(updates){
-            if(cancelled)return;
-            rememberHydratedSources(updates.filter(function(update){return update&&typeof update.content==='string';}));
+        var inflight=codeSourceInFlightRef.current;
+        nextCodeSourceReads(missing.map(function(file){return file.path;}),inflight).forEach(function(path){
+            inflight[path]=true;
+            readLiveFileSource(path).then(function(content){
+                if(typeof content==='string')rememberHydratedSources([{path:path,content:content}]);
+            }).then(function(){delete inflight[path];},function(){delete inflight[path];});
         });
-        return function(){cancelled=true;};
     },[codeViewFiles,localSourceKind,cliStatus,repoInfo,localDirHandle]);
 
     useEffect(function(){

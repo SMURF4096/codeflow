@@ -247,7 +247,39 @@ test('appending a code card keeps existing cards in place', () => {
   const grown = context.appendCodeCardPlacement(placed, a, { width: 440, height: 400 }, opts);
   assert.equal(grown['src/a.js'].left, first.left);
   assert.equal(grown['src/a.js'].top, first.top);
-  assert.equal(grown['src/b.js'].top, beforeB.top);
+  assert.ok(grown['src/b.js'].top >= grown['src/a.js'].top + grown['src/a.js'].height);
+  assert.ok(grown['src/b.js'].top > beforeB.top);
+  const pinned = context.appendCodeCardPlacement(placed, a, { width: 440, height: 400 }, Object.assign({ pinnedPaths: { 'src/b.js': true } }, opts));
+  assert.equal(pinned['src/b.js'].top, beforeB.top);
+});
+
+test('hydration height growth reflows unpinned cards in the same folder', () => {
+  const a = { path: 'src/a.js', folder: 'src' };
+  const b = { path: 'src/b.js', folder: 'src' };
+  const opts = { originY: 72, gapY: 36 };
+  let placed = context.appendCodeCardPlacement({}, a, { width: 440, height: 160 }, opts);
+  placed = context.appendCodeCardPlacement(placed, b, { width: 440, height: 160 }, opts);
+  const beforeB = placed['src/b.js'].top;
+  placed = context.reflowUnpinnedCodeCards(
+    context.appendCodeCardPlacement(placed, a, { width: 440, height: 400 }, opts),
+    null,
+    opts
+  );
+  assert.equal(placed['src/a.js'].top, 72);
+  assert.equal(placed['src/b.js'].top, 72 + 400 + 36);
+  assert.ok(placed['src/b.js'].top > beforeB);
+});
+
+test('source reads skip paths that are already in flight', () => {
+  assert.deepEqual(J(context.nextCodeSourceReads(['a.js', 'b.js', 'a.js'], { 'a.js': true })), ['b.js']);
+  assert.deepEqual(J(context.nextCodeSourceReads(['a.js'], { 'a.js': true })), []);
+});
+
+test('wheel pan deltas stay screen-pixel based across zoom', () => {
+  assert.deepEqual(J(context.codeViewWheelPanDelta(40, 80, 1)), { x: -40, y: -80 });
+  assert.deepEqual(J(context.codeViewWheelPanDelta(40, 80, 2)), { x: -20, y: -40 });
+  assert.deepEqual(J(context.codeViewWheelPanDelta(40, 80, 0.5)), { x: -80, y: -160 });
+  assert.equal(context.codeViewWheelAction({}), 'pan');
 });
 
 test('line-level code edges use bezier anchors, not card centers', () => {
@@ -576,6 +608,10 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /applyCodeCardLayout/);
   assert.match(htmlSource, /layoutCodeCardsByFolder/);
   assert.match(htmlSource, /appendCodeCardPlacement/);
+  assert.match(htmlSource, /reflowUnpinnedCodeCards/);
+  assert.match(htmlSource, /nextCodeSourceReads/);
+  assert.match(htmlSource, /codeViewWheelPanDelta/);
+  assert.match(htmlSource, /codeSourceInFlightRef/);
   assert.match(htmlSource, /openCodeCardPaths/);
   assert.match(htmlSource, /filesForOpenedCodePaths/);
   assert.match(htmlSource, /applyOpenedCardPlacements/);
