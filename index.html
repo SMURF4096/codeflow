@@ -492,7 +492,7 @@ body{font-family:'JetBrains Mono',monospace;background:var(--bg0);color:var(--t0
 .code-card-name{font-size:11px;font-weight:600;color:var(--t0);transform-origin:left center;display:inline-block;white-space:nowrap}
 .code-card-path{font-size:9px;color:var(--t3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:240px}
 .code-card-body{flex:1;overflow:hidden;min-height:0;user-select:text}
-.code-card.clipped .code-card-body{overflow:auto;touch-action:pan-y}
+.code-card.clipped .code-card-body{overflow:auto;touch-action:pan-x pan-y}
 .code-card-body .file-preview-code{padding:8px 0;font-size:11px}
 .code-card.code-far .code-card-body{overflow:hidden}
 .code-card.code-far .file-preview-linenum{display:none}
@@ -5827,7 +5827,7 @@ function collectVisibleCodeFiles(selectedPath,data,folderFilter,limit){
         if(!file||ordered.some(function(f){return f.path===path;}))return;
         ordered.push(file);
     }
-    if(!selectedPath)selectedPath=defaultCodeViewSeed(data,folderFilter);
+    if(!selectedPath||!byPath[selectedPath])selectedPath=defaultCodeViewSeed(data,folderFilter);
     if(selectedPath)add(selectedPath);
     getConnectedFilePaths(selectedPath,data.connections).slice().sort(function(a,b){
         var loadedA=fileHasLoadedSource(byPath[a])?0:1;
@@ -5874,12 +5874,18 @@ function codeCardContentMetrics(file){
 
 var CODE_CARD_WIDTH=440;
 
+function codeCardNaturalWidth(metrics){
+    metrics=metrics||{maxLineChars:0};
+    return CODE_CARD_GUTTER+CODE_CARD_BODY_PAD+(metrics.maxLineChars||0)*CODE_CARD_CHAR_WIDTH;
+}
+
 function codeCardSize(file){
     var metrics=codeCardContentMetrics(file);
     var width=CODE_CARD_WIDTH;
+    var naturalWidth=codeCardNaturalWidth(metrics);
     var naturalHeight=CODE_CARD_HEAD_HEIGHT+CODE_CARD_BODY_PAD+metrics.lines*CODE_CARD_LINE_HEIGHT;
     var height=Math.max(CODE_CARD_MIN_HEIGHT,Math.min(CODE_CARD_MAX_HEIGHT,naturalHeight));
-    return{width:width,height:height,clipped:naturalHeight>CODE_CARD_MAX_HEIGHT};
+    return{width:width,height:height,clipped:naturalHeight>CODE_CARD_MAX_HEIGHT||naturalWidth>width};
 }
 
 function codeCardCollisionRadius(size){
@@ -6129,10 +6135,22 @@ function codeCardAnchorStyle(node,size){
 var CODE_VIEW_MIN_FIT_SCALE=0.4;
 var CODE_VIEW_MAX_FIT_SCALE=1.15;
 
+function connectionIdentity(connection){
+    var src=connection&&(typeof connection.source==='object'?connection.source.id:connection.source);
+    var tgt=connection&&(typeof connection.target==='object'?connection.target.id:connection.target);
+    var count=connection&&connection.count!=null?connection.count:1;
+    return String(src||'')+'\t'+String(tgt||'')+'\t'+String((connection&&connection.fn)||'')+'\t'+String(count);
+}
+
 function graphStructureKey(data,folderFilter){
     if(!data||!data.files)return '';
     var paths=data.files.map(function(file){return file.path;}).join('\n');
-    return String(folderFilter||'')+'\n'+paths+'\n'+(data.connections?data.connections.length:0);
+    var connections=(data.connections||[]).map(connectionIdentity).sort().join('\n');
+    return String(folderFilter||'')+'\n'+paths+'\n'+connections;
+}
+
+function codeViewSceneKey(data,folderFilter,vizType){
+    return graphStructureKey(data,folderFilter)+'|'+String(vizType||'');
 }
 
 function preserveGraphNodeState(nodes,prevById){
@@ -8451,11 +8469,12 @@ function App(){
     var codeViewFiles=useMemo(function(){
         if(!data)return[];
         var paths=openedCodePaths;
-        if((!paths||!paths.length)&&graphConfig.vizType==='code'){
+        var files=filesForOpenedCodePaths(paths,data,folderFilter);
+        if((!files.length)&&graphConfig.vizType==='code'){
             var seed=defaultCodeViewSeed(data,folderFilter);
-            if(seed)paths=[seed];
+            if(seed)files=filesForOpenedCodePaths([seed],data,folderFilter);
         }
-        return filesForOpenedCodePaths(paths,data,folderFilter);
+        return files;
     },[data,openedCodePaths,folderFilter,graphConfig.vizType]);
     useEffect(function(){
         var scene=graphStructureKey(data,folderFilter);
@@ -8565,11 +8584,21 @@ function App(){
         });
         var keep=Object.create(null);
         codeViewFiles.forEach(function(file){keep[file.path]=true;});
-        Object.keys(placements).forEach(function(path){if(!keep[path])delete placements[path];});
+        var departed=Object.create(null);
+        Object.keys(placements).forEach(function(path){
+            if(keep[path])return;
+            departed[path]=true;
+            delete placements[path];
+        });
         codeCardPlacementRef.current=placements;
         sim.nodes().forEach(function(node){
             var pos=placements[node.id];
-            if(!pos)return;
+            if(!pos){
+                if(departed[node.id]&&!codeCardUserPinnedRef.current.has(node.id)){
+                    node.fx=null;node.fy=null;
+                }
+                return;
+            }
             if(codeCardUserPinnedRef.current.has(node.id)&&isFinite(node.fx)&&isFinite(node.fy)){
                 node.x=node.fx;node.y=node.fy;
                 return;
@@ -8670,7 +8699,7 @@ function App(){
         var centers={};
         folders.forEach(function(f,i){centers[f]={x:(i%cols+1)*cw,y:(Math.floor(i/cols)+1)*ch};});
         var keepReadable=graphConfig.vizType==='code';
-        var sceneKey=(folderFilter||'')+'|'+graphConfig.vizType;
+        var sceneKey=codeViewSceneKey(data,folderFilter,graphConfig.vizType);
         if(sceneKey!==codeViewSceneRef.current){
             codeViewSceneRef.current=sceneKey;
             codeViewCameraReadyRef.current=false;

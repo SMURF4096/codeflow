@@ -115,6 +115,24 @@ test('visible code files are not capped at four', () => {
   assert.equal(seeded.length, 6);
 });
 
+test('Code view seeds the filtered folder when the selection is outside it', () => {
+  const data = {
+    files: [
+      { path: 'src/hub.js', folder: 'src', name: 'hub.js', functions: [] },
+      { path: 'src/leaf.js', folder: 'src', name: 'leaf.js', functions: [] },
+      { path: 'lib/out.js', folder: 'lib', name: 'out.js', functions: [] }
+    ],
+    connections: [
+      { source: 'src/hub.js', target: 'src/leaf.js', fn: 'h' },
+      { source: 'lib/out.js', target: 'src/hub.js', fn: 'o' }
+    ]
+  };
+  const visible = context.collectVisibleCodeFiles('lib/out.js', data, 'src');
+  assert.equal(visible[0].path, 'src/hub.js');
+  assert.ok(visible.every((file) => file.folder === 'src'));
+  assert.equal(visible.some((file) => file.path === 'lib/out.js'), false);
+});
+
 test('Code view seeds cards without waiting for a click', () => {
   const files = [
     { path: 'leaf.js', folder: 'src', name: 'leaf.js', functions: [] },
@@ -169,6 +187,10 @@ test('code cards use a uniform width and grow with line count', () => {
   assert.equal(huge.width, context.CODE_CARD_WIDTH);
   assert.equal(huge.height, context.CODE_CARD_MAX_HEIGHT);
   assert.equal(huge.clipped, true);
+  const wide = context.codeCardSize({ content: 'x'.repeat(200) });
+  assert.equal(wide.width, context.CODE_CARD_WIDTH);
+  assert.ok(wide.height < context.CODE_CARD_MAX_HEIGHT);
+  assert.equal(wide.clipped, true);
 });
 
 test('opened code paths append without reshuffling the set', () => {
@@ -292,6 +314,24 @@ test('hydrating file contents does not change the graph structure key', () => {
   };
   assert.equal(context.graphStructureKey(before, null), context.graphStructureKey(after, null));
   assert.notEqual(context.graphStructureKey(before, null), context.graphStructureKey(before, 'src'));
+  const swapped = {
+    files: [{ path: 'a.js' }, { path: 'b.js' }],
+    connections: [{ source: 'b.js', target: 'a.js' }]
+  };
+  const heavier = {
+    files: [{ path: 'a.js' }, { path: 'b.js' }],
+    connections: [{ source: 'a.js', target: 'b.js', count: 4 }]
+  };
+  assert.notEqual(context.graphStructureKey(before, null), context.graphStructureKey(swapped, null));
+  assert.notEqual(context.graphStructureKey(before, null), context.graphStructureKey(heavier, null));
+  assert.equal(
+    context.codeViewSceneKey(before, null, 'code'),
+    context.codeViewSceneKey(after, null, 'code')
+  );
+  assert.notEqual(
+    context.codeViewSceneKey(before, null, 'code'),
+    context.codeViewSceneKey(swapped, null, 'code')
+  );
 });
 
 test('preserved graph nodes keep the user camera positions', () => {
@@ -521,6 +561,10 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /shouldFitCodeCamera/);
   assert.match(htmlSource, /codeViewCameraReadyRef/);
   assert.match(htmlSource, /graphRebuildKey/);
+  assert.match(htmlSource, /connectionIdentity/);
+  assert.match(htmlSource, /codeViewSceneKey/);
+  assert.match(htmlSource, /naturalWidth>width/);
+  assert.match(htmlSource, /!byPath\[selectedPath\]/);
   assert.match(htmlSource, /nodeReplacedByCard/);
   assert.match(htmlSource, /unburyNodesFromCards/);
   assert.match(htmlSource, /\.has-code-card\{display:none/);
