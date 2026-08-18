@@ -6663,7 +6663,7 @@ function App(){
     var _j=useState(null),selected=_j[0],setSelected=_j[1];
     var _k=useState(new Set([''])),expandedPaths=_k[0],setExpandedPaths=_k[1];
     var _l=useState(new Set(['blast','fns'])),expandedCards=_l[0],setExpandedCards=_l[1];
-    var _leftRail=useState('recents'),leftTab=_leftRail[0],setLeftTab=_leftRail[1];
+    var _leftRail=useState('overview'),leftTab=_leftRail[0],setLeftTab=_leftRail[1];
     var _m=useState('details'),rightTab=_m[0],setRightTab=_m[1];
     var _m2=useState(null),drillDown=_m2[0],setDrillDown=_m2[1];// {type:'issue'|'pattern'|'security'|'suggestion'|'duplicate', data:...}
     var _n=useState(null),blastRadius=_n[0],setBlastRadius=_n[1];
@@ -8163,8 +8163,7 @@ function App(){
     },[graphConfig.vizType,data,folderFilter,selected]);
     var hadAnalysisRef=useRef(false);
     useEffect(function(){
-        if(data&&!hadAnalysisRef.current)setLeftTab('files');
-        if(!data)setLeftTab('recents');
+        if(data&&!hadAnalysisRef.current)setLeftTab('overview');
         hadAnalysisRef.current=!!data;
     },[data]);
     var codeViewFileTotal=useMemo(function(){
