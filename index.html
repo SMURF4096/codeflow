@@ -5721,6 +5721,8 @@ function getConnectedFilePaths(path,connections){
     return Array.from(linked);
 }
 
+var CODE_CARD_MAX=12;
+
 function collectVisibleCodeFiles(selectedPath,data,folderFilter,limit){
     if(!data||!data.files)return[];
     var filtered=folderFilter?data.files.filter(function(f){return f.folder===folderFilter||f.folder.startsWith(folderFilter+'/');}):data.files;
@@ -5733,9 +5735,26 @@ function collectVisibleCodeFiles(selectedPath,data,folderFilter,limit){
         ordered.push(file);
     }
     if(selectedPath)add(selectedPath);
-    getConnectedFilePaths(selectedPath,data.connections).forEach(add);
-    if(limit==null||!isFinite(Number(limit)))return ordered;
-    return ordered.slice(0,Math.max(0,Number(limit)));
+    getConnectedFilePaths(selectedPath,data.connections).slice().sort(function(a,b){
+        var loadedA=fileHasLoadedSource(byPath[a])?0:1;
+        var loadedB=fileHasLoadedSource(byPath[b])?0:1;
+        return loadedA-loadedB;
+    }).forEach(add);
+    var max=limit==null?CODE_CARD_MAX:Number(limit);
+    if(!isFinite(max))return ordered;
+    return ordered.slice(0,Math.max(0,max));
+}
+
+function countVisibleCodeFiles(selectedPath,data,folderFilter){
+    return collectVisibleCodeFiles(selectedPath,data,folderFilter,Infinity).length;
+}
+
+function noteCodeCardPointerEnd(moved){
+    return {select:!moved,ignoreNextClick:!!moved};
+}
+
+function consumeCodeCardClick(ignoreNextClick){
+    return {ignore:!!ignoreNextClick,ignoreNextClick:false};
 }
 
 var CODE_CARD_WIDTH=320;
@@ -6572,6 +6591,7 @@ function App(){
     var codeZoomTransformRef=useRef({k:1,x:0,y:0});
     var graphNodesByIdRef=useRef(Object.create(null));
     var selectedPathRef=useRef(null);
+    var codeCardIgnoreClickRef=useRef(false);
     var pendingRecentDeleteTimerRef=useRef(null);
     var zipInputRef=useRef(null);
     var zipArchiveRef=useRef(null);
@@ -7995,6 +8015,10 @@ function App(){
     var codeViewFiles=useMemo(function(){
         if(!data)return[];
         return collectVisibleCodeFiles(selected&&selected.path,data,folderFilter);
+    },[data,selected,folderFilter]);
+    var codeViewFileTotal=useMemo(function(){
+        if(!data)return 0;
+        return countVisibleCodeFiles(selected&&selected.path,data,folderFilter);
     },[data,selected,folderFilter]);
     selectedPathRef.current=selected&&selected.path;
     codeCardPathsRef.current=new Set(codeViewFiles.map(function(file){return file.path;}));
@@ -9696,8 +9720,13 @@ function App(){
             window.removeEventListener('pointerup',onUp);
             window.removeEventListener('pointercancel',onUp);
             sim.alphaTarget(0);
-            if(moved){node.fx=node.x;node.fy=node.y;}
-            else{node.fx=null;node.fy=null;selectFile(file.path);}
+            var end=noteCodeCardPointerEnd(moved);
+            if(end.ignoreNextClick){
+                codeCardIgnoreClickRef.current=true;
+                setTimeout(function(){codeCardIgnoreClickRef.current=false;},400);
+            }
+            if(end.select){node.fx=null;node.fy=null;selectFile(file.path);}
+            else{node.fx=node.x;node.fy=node.y;}
         }
         window.addEventListener('pointermove',onMove);
         window.addEventListener('pointerup',onUp);
@@ -9723,7 +9752,12 @@ function App(){
                 :(sourceState==='loading'?'Loading source...':'Reopen this project to read source');
             body=React.createElement('div',{className:'empty-desc',style:{padding:'12px'}},message);
         }
-        return React.createElement('div',{key:file.path,'data-code-card':file.path,className:'code-card'+(isPrimary?' primary':' linked'),onClick:function(){if(selected&&selected.path!==file.path)selectFile(file.path);}},
+        return React.createElement('div',{key:file.path,'data-code-card':file.path,className:'code-card'+(isPrimary?' primary':' linked'),onClick:function(e){
+            var taken=consumeCodeCardClick(codeCardIgnoreClickRef.current);
+            codeCardIgnoreClickRef.current=taken.ignoreNextClick;
+            if(taken.ignore){e.stopPropagation();return;}
+            if(selected&&selected.path!==file.path)selectFile(file.path);
+        }},
             React.createElement('div',{className:'code-card-head',onPointerDown:function(e){beginCodeCardDrag(e,file);}},
                 React.createElement('div',null,
                     React.createElement('div',{className:'code-card-name'},file.name),
@@ -9749,7 +9783,7 @@ function App(){
                 codeViewFiles.map(function(file){return renderCodeFileCard(file,file.path===primaryPath);})
             ),
             React.createElement('div',{className:'code-canvas-hud'},
-                React.createElement('div',{className:'code-canvas-hint'},selected?'Click a symbol to highlight it across these cards':'Click a node to open its file as a card on the canvas. Connected files open with it.'),
+                React.createElement('div',{className:'code-canvas-hint'},selected?(codeViewFileTotal>codeViewFiles.length?'Showing '+codeViewFiles.length+' of '+codeViewFileTotal+' connected files. Click a symbol to highlight it across these cards.':'Click a symbol to highlight it across these cards'):'Click a node to open its file as a card on the canvas. Connected files open with it.'),
                 codeViewSymbols.length>0&&React.createElement('div',{className:'code-sym-row'},
                     codeViewSymbols.slice(0,24).map(function(sym){
                         return React.createElement('button',{key:sym.name,className:'code-sym-chip '+sym.kind+(activeSymbol===sym.name?' active':''),onClick:function(){setActiveSymbol(function(prev){return prev===sym.name?null:sym.name;});}},sym.name);

@@ -91,6 +91,30 @@ test('visible code files are not capped at four', () => {
   assert.equal(context.collectVisibleCodeFiles(null, { files, connections }, 'src').length, 0);
 });
 
+test('high-degree neighborhoods stay within the card cap', () => {
+  const files = Array.from({ length: 30 }, (_, i) => ({
+    path: i === 0 ? 'hub.js' : 'n' + i + '.js',
+    folder: 'src',
+    name: i === 0 ? 'hub.js' : 'n' + i + '.js',
+    functions: []
+  }));
+  files[20].content = 'export const kept = 1;\n';
+  const connections = files.slice(1).map((file) => ({ source: 'hub.js', target: file.path, fn: 'hub' }));
+  const visible = context.collectVisibleCodeFiles('hub.js', { files, connections }, 'src');
+  assert.equal(visible.length, context.CODE_CARD_MAX);
+  assert.equal(visible[0].path, 'hub.js');
+  assert.ok(visible.some((file) => file.path === 'n20.js'));
+  assert.equal(context.countVisibleCodeFiles('hub.js', { files, connections }, 'src'), 30);
+  assert.ok(context.countVisibleCodeFiles('hub.js', { files, connections }, 'src') > visible.length);
+});
+
+test('a drag does not select the card on the leftover click', () => {
+  assert.deepEqual(J(context.noteCodeCardPointerEnd(true)), { select: false, ignoreNextClick: true });
+  assert.deepEqual(J(context.noteCodeCardPointerEnd(false)), { select: true, ignoreNextClick: false });
+  assert.deepEqual(J(context.consumeCodeCardClick(true)), { ignore: true, ignoreNextClick: false });
+  assert.deepEqual(J(context.consumeCodeCardClick(false)), { ignore: false, ignoreNextClick: false });
+});
+
 test('code cards sit on the canvas transform, not a split pane', () => {
   assert.deepEqual(J(context.codeCardSize(false)), { width: 320, height: 220 });
   assert.ok(context.codeCardCollisionRadius(true) > 100);
@@ -298,6 +322,8 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.doesNotMatch(htmlSource, /className:'code-split'/);
   assert.match(htmlSource, /data-code-card/);
   assert.match(htmlSource, /applyCodeCardLayout/);
+  assert.match(htmlSource, /CODE_CARD_MAX/);
+  assert.match(htmlSource, /consumeCodeCardClick/);
   assert.match(htmlSource, /vizType==='code'/);
   assert.match(htmlSource, /readableLabelScale/);
   assert.match(htmlSource, /listRecentAnalyses/);
