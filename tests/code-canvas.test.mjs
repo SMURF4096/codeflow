@@ -174,6 +174,36 @@ test('opened code cards auto-align by directory', () => {
   assert.ok(bounds.height >= 200);
 });
 
+test('Code camera fits only when it has not been armed yet', () => {
+  assert.equal(context.shouldFitCodeCamera(false, 'code'), true);
+  assert.equal(context.shouldFitCodeCamera(true, 'code'), false);
+  assert.equal(context.shouldFitCodeCamera(false, 'graph'), false);
+  assert.equal(context.clampCodeViewFitScale(0.05), context.CODE_VIEW_MIN_FIT_SCALE);
+  assert.equal(context.clampCodeViewFitScale(8), context.CODE_VIEW_MAX_FIT_SCALE);
+  assert.equal(context.clampCodeViewFitScale(0.7), 0.7);
+});
+
+test('hydrating file contents does not change the graph structure key', () => {
+  const before = {
+    files: [{ path: 'a.js' }, { path: 'b.js' }],
+    connections: [{ source: 'a.js', target: 'b.js' }]
+  };
+  const after = {
+    files: [{ path: 'a.js', content: 'export function a(){}' }, { path: 'b.js', content: 'import { a } from "./a.js"' }],
+    connections: [{ source: 'a.js', target: 'b.js' }]
+  };
+  assert.equal(context.graphStructureKey(before, null), context.graphStructureKey(after, null));
+  assert.notEqual(context.graphStructureKey(before, null), context.graphStructureKey(before, 'src'));
+});
+
+test('preserved graph nodes keep the user camera positions', () => {
+  const nodes = [{ id: 'a.js', x: 0, y: 0 }, { id: 'b.js', x: 1, y: 1 }];
+  context.preserveGraphNodeState(nodes, { 'a.js': { x: 40, y: 80, fx: 40, fy: 80 } });
+  assert.equal(nodes[0].x, 40);
+  assert.equal(nodes[0].fx, 40);
+  assert.equal(nodes[1].x, 1);
+});
+
 test('code cards sit on the canvas transform, not a split pane', () => {
   assert.ok(context.codeCardCollisionRadius({ width: 320, height: 220 }) > 100);
   assert.equal(context.codeCanvasTransformStyle({ k: 0.5, x: 10, y: 20 }), 'translate(10px,20px) scale(0.5)');
@@ -384,6 +414,10 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /applyCodeCardLayout/);
   assert.match(htmlSource, /layoutCodeCardsByFolder/);
   assert.match(htmlSource, /defaultCodeViewSeed/);
+  assert.match(htmlSource, /shouldFitCodeCamera/);
+  assert.match(htmlSource, /codeViewCameraReadyRef/);
+  assert.match(htmlSource, /graphRebuildKey/);
+  assert.doesNotMatch(htmlSource, /if\(firstOpen&&codeViewFiles\.length/);
   assert.match(htmlSource, /className:'code-sym-list'/);
   assert.doesNotMatch(htmlSource, /className:'code-sym-row'/);
   assert.match(htmlSource, /CODE_CARD_MAX/);

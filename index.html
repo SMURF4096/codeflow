@@ -5932,6 +5932,66 @@ function codeCardAnchorStyle(node,size){
     };
 }
 
+var CODE_VIEW_MIN_FIT_SCALE=0.4;
+var CODE_VIEW_MAX_FIT_SCALE=1.15;
+
+function graphStructureKey(data,folderFilter){
+    if(!data||!data.files)return '';
+    var paths=data.files.map(function(file){return file.path;}).join('\n');
+    return String(folderFilter||'')+'\n'+paths+'\n'+(data.connections?data.connections.length:0);
+}
+
+function preserveGraphNodeState(nodes,prevById){
+    (nodes||[]).forEach(function(node){
+        var prev=prevById&&prevById[node.id];
+        if(!prev)return;
+        if(isFinite(prev.x))node.x=prev.x;
+        if(isFinite(prev.y))node.y=prev.y;
+        if(isFinite(prev.vx))node.vx=prev.vx;
+        if(isFinite(prev.vy))node.vy=prev.vy;
+        if(prev.fx!=null&&isFinite(prev.fx))node.fx=prev.fx;
+        if(prev.fy!=null&&isFinite(prev.fy))node.fy=prev.fy;
+    });
+    return nodes;
+}
+
+function snapshotZoomTransform(transform){
+    var t=transform||{};
+    var k=Number(t.k);
+    if(!isFinite(k)||k<=0)k=1;
+    var x=Number(t.x);
+    if(!isFinite(x))x=0;
+    var y=Number(t.y);
+    if(!isFinite(y))y=0;
+    return {k:k,x:x,y:y};
+}
+
+function shouldFitCodeCamera(cameraReady,vizType){
+    return vizType==='code'&&!cameraReady;
+}
+
+function clampCodeViewFitScale(scale){
+    var value=Number(scale);
+    if(!isFinite(value)||value<=0)return CODE_VIEW_MIN_FIT_SCALE;
+    if(value<CODE_VIEW_MIN_FIT_SCALE)return CODE_VIEW_MIN_FIT_SCALE;
+    if(value>CODE_VIEW_MAX_FIT_SCALE)return CODE_VIEW_MAX_FIT_SCALE;
+    return value;
+}
+
+function codeCardFitBounds(nodes,sizesByPath,cardPaths){
+    var minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+    (nodes||[]).forEach(function(node){
+        if(!node||!cardPaths||!cardPaths.has(node.id)||!isFinite(node.x)||!isFinite(node.y))return;
+        var size=(sizesByPath&&sizesByPath[node.id])||codeCardSize(null);
+        minX=Math.min(minX,node.x-size.width/2);
+        minY=Math.min(minY,node.y-size.height/2);
+        maxX=Math.max(maxX,node.x+size.width/2);
+        maxY=Math.max(maxY,node.y+size.height/2);
+    });
+    if(!isFinite(minX))return null;
+    return {minX:minX,minY:minY,maxX:maxX,maxY:maxY,cx:(minX+maxX)/2,cy:(minY+maxY)/2};
+}
+
 function applyCodeCardLayout(layer,nodesById,transform,sizesByPath){
     if(!layer)return{placed:0,titleScale:1};
     layer.style.transform=codeCanvasTransformStyle(transform);
@@ -6731,6 +6791,8 @@ function App(){
     var codeCardSizesRef=useRef(Object.create(null));
     var codeCardUserPinnedRef=useRef(new Set());
     var codeCardLayoutKeyRef=useRef('');
+    var codeViewCameraReadyRef=useRef(false);
+    var codeViewSceneRef=useRef('');
     var codeCardIgnoreClickRef=useRef(false);
     var pendingRecentDeleteTimerRef=useRef(null);
     var zipInputRef=useRef(null);
@@ -8152,6 +8214,19 @@ function App(){
         return m;
     },[data,colorMode]);
 
+    var graphRebuildKey=useMemo(function(){
+        return [
+            graphStructureKey(data,folderFilter),
+            colorMode,
+            theme,
+            graphConfig.vizType,
+            graphConfig.viewMode,
+            graphConfig.spacing,
+            graphConfig.linkDist,
+            graphConfig.showLabels,
+            graphConfig.curvedLinks
+        ].join('\0');
+    },[data,folderFilter,colorMode,theme,graphConfig]);
     var codeViewFiles=useMemo(function(){
         if(!data)return[];
         return collectVisibleCodeFiles(selected&&selected.path,data,folderFilter);
@@ -8184,7 +8259,7 @@ function App(){
         applyCodeCardLayout(codeCardsLayerRef.current,graphNodesByIdRef.current,codeZoomTransformRef.current,codeCardSizesRef.current);
     }
 
-    function pinCodeCardsToFolderLayout(){
+    function pinCodeCardsToFolderLayout(onlyUnplaced){
         var sim=simRef.current;
         if(!sim)return;
         var sizes=currentCodeCardSizes();
@@ -8192,11 +8267,22 @@ function App(){
         sim.nodes().forEach(function(node){
             var pos=layout[node.id];
             if(!pos){
-                if(!codeCardUserPinnedRef.current.has(node.id)){node.fx=null;node.fy=null;}
+                if(!onlyUnplaced&&!codeCardUserPinnedRef.current.has(node.id)){node.fx=null;node.fy=null;}
                 return;
             }
             if(codeCardUserPinnedRef.current.has(node.id))return;
+            if(onlyUnplaced&&isFinite(node.fx)&&isFinite(node.fy))return;
             node.fx=pos.x;node.fy=pos.y;node.x=pos.x;node.y=pos.y;
+        });
+    }
+    function freezeNewCodeCardsInPlace(){
+        var sim=simRef.current;
+        if(!sim)return;
+        sim.nodes().forEach(function(node){
+            if(!codeCardPathsRef.current.has(node.id))return;
+            if(isFinite(node.fx)&&isFinite(node.fy))return;
+            if(!isFinite(node.x)||!isFinite(node.y))return;
+            node.fx=node.x;node.fy=node.y;
         });
     }
 
@@ -8274,7 +8360,21 @@ function App(){
         var centers={};
         folders.forEach(function(f,i){centers[f]={x:(i%cols+1)*cw,y:(Math.floor(i/cols)+1)*ch};});
         var keepReadable=graphConfig.vizType==='code';
-        codeZoomTransformRef.current={k:1,x:0,y:0};
+        var sceneKey=(folderFilter||'')+'|'+graphConfig.vizType;
+        if(sceneKey!==codeViewSceneRef.current){
+            codeViewSceneRef.current=sceneKey;
+            codeViewCameraReadyRef.current=false;
+        }
+        var savedZoom=snapshotZoomTransform(codeZoomTransformRef.current);
+        var prevNodesById=Object.create(null);
+        if(simRef.current){
+            simRef.current.nodes().forEach(function(n){if(n&&n.id)prevNodesById[n.id]=n;});
+        }
+        if(keepReadable&&codeViewCameraReadyRef.current)preserveGraphNodeState(nodes,prevNodesById);
+        if(!keepReadable){
+            codeZoomTransformRef.current={k:1,x:0,y:0};
+            codeViewCameraReadyRef.current=false;
+        }
         graphNodesByIdRef.current=Object.create(null);
         nodes.forEach(function(n){graphNodesByIdRef.current[n.id]=n;});
         function collideR(d){return liveCodeCollideRadius(d,keepReadable&&codeCardPathsRef.current.has(d.id)?codeCardSizesRef.current[d.id]:null);}
@@ -8364,7 +8464,7 @@ function App(){
         linksRef.current=link;
         var node=nodeLayer.selectAll('g').data(nodes).join('g').style('cursor','pointer');
         nodesRef.current=node;
-        node.call(d3.drag().on('start',function(e,d){if(!e.active)sim.alphaTarget(0.1).restart();d.fx=d.x;d.fy=d.y;}).on('drag',function(e,d){d.fx=e.x;d.fy=e.y;}).on('end',function(e,d){if(!e.active)sim.alphaTarget(0);d.fx=null;d.fy=null;}));
+        node.call(d3.drag().on('start',function(e,d){if(!e.active)sim.alphaTarget(0.1).restart();d.fx=d.x;d.fy=d.y;}).on('drag',function(e,d){d.fx=e.x;d.fy=e.y;}).on('end',function(e,d){if(!e.active)sim.alphaTarget(0);if(keepReadable){d.fx=d.x;d.fy=d.y;codeCardUserPinnedRef.current.add(d.id);}else{d.fx=null;d.fy=null;}}));
         node.on('click',function(e,d){e.stopPropagation();if(selectFileRef.current)selectFileRef.current(d.id);});
         node.classed('has-code-card',function(d){return keepReadable&&codeCardPathsRef.current.has(d.id);});
         node.classed('code-faded',function(d){return keepReadable&&codeCardPathsRef.current.size>0&&!codeCardPathsRef.current.has(d.id);});
@@ -8425,37 +8525,39 @@ function App(){
             if(tickCount%hullInterval===0)updateHulls();
         });
         node.selectAll('text').attr('opacity',(keepReadable||graphConfig.showLabels)?1:0);
-        }catch(e){console.error('Force graph error:',e);svg.selectAll('*').remove();svg.append('text').attr('x',20).attr('y',30).attr('fill','var(--t3)').text('Graph rendering error: '+e.message);}
         if(keepReadable){
             currentCodeCardSizes();
-            pinCodeCardsToFolderLayout();
+            if(!codeViewCameraReadyRef.current)pinCodeCardsToFolderLayout();
+            else freezeNewCodeCardsInPlace();
             refreshCodeCardForces();
             syncCodeCards();
-            var fit=computeGraphFitTransform();
-            if(fit)svg.call(zoom.transform,fit);
+            updateHulls();
+            if(shouldFitCodeCamera(codeViewCameraReadyRef.current,graphConfig.vizType)){
+                var fit=computeGraphFitTransform();
+                if(fit)svg.call(zoom.transform,fit);
+                codeViewCameraReadyRef.current=true;
+            }else{
+                svg.call(zoom.transform,d3.zoomIdentity.translate(savedZoom.x,savedZoom.y).scale(savedZoom.k));
+            }
+            sim.alpha(0);
         }
+        }catch(e){console.error('Force graph error:',e);svg.selectAll('*').remove();svg.append('text').attr('x',20).attr('y',30).attr('fill','var(--t3)').text('Graph rendering error: '+e.message);}
         return function(){if(simRef.current)simRef.current.stop();};
-    },[data,colorMap,colorMode,theme,folderFilter,graphConfig]);
+    },[graphRebuildKey]);
 
     useLayoutEffect(function(){
         if(graphConfig.vizType!=='code'){
             codeCardLayoutKeyRef.current='';
+            codeViewCameraReadyRef.current=false;
             return;
         }
         var layoutKey=codeViewFiles.map(function(file){return file.path;}).join('|');
-        var firstOpen=!codeCardLayoutKeyRef.current;
-        if(layoutKey!==codeCardLayoutKeyRef.current){
-            codeCardLayoutKeyRef.current=layoutKey;
-            codeCardUserPinnedRef.current=new Set();
-        }
+        if(layoutKey!==codeCardLayoutKeyRef.current)codeCardLayoutKeyRef.current=layoutKey;
         currentCodeCardSizes();
-        pinCodeCardsToFolderLayout();
+        if(!codeViewCameraReadyRef.current)pinCodeCardsToFolderLayout();
+        else freezeNewCodeCardsInPlace();
         refreshCodeCardForces();
         syncCodeCards();
-        if(firstOpen&&codeViewFiles.length&&zoomRef.current&&svgRef.current){
-            var fit=computeGraphFitTransform();
-            if(fit)d3.select(svgRef.current).call(zoomRef.current.transform,fit);
-        }
     },[codeViewFiles,graphConfig.vizType,graphConfig.linkDist]);
 
     // 3D Force Graph Hook
@@ -9356,20 +9458,22 @@ function App(){
     }
     function computeGraphFitTransform(paddingSlack){
         paddingSlack=paddingSlack==null?100:paddingSlack;
-        if(graphConfig.vizType==='code'&&codeCardPathsRef.current&&codeCardPathsRef.current.size){
-            var maxR=120;
-            Object.keys(codeCardSizesRef.current||{}).forEach(function(path){
-                maxR=Math.max(maxR,codeCardCollisionRadius(codeCardSizesRef.current[path]));
-            });
-            paddingSlack=Math.max(paddingSlack,maxR*2);
-        }
         if(!zoomRef.current||!svgRef.current||!simRef.current)return null;
         var nodes=simRef.current.nodes();
         if(!nodes.length)return null;
-        var xs=nodes.map(function(n){return n.x;}),ys=nodes.map(function(n){return n.y;});
-        var minX=Math.min.apply(null,xs),maxX=Math.max.apply(null,xs),minY=Math.min.apply(null,ys),maxY=Math.max.apply(null,ys);
         var w=svgRef.current.clientWidth,h=svgRef.current.clientHeight;
         if(w<1||h<1)return null;
+        if(graphConfig.vizType==='code'&&codeCardPathsRef.current&&codeCardPathsRef.current.size){
+            var cardBounds=codeCardFitBounds(nodes,codeCardSizesRef.current,codeCardPathsRef.current);
+            if(cardBounds){
+                var cardW=Math.max(1,cardBounds.maxX-cardBounds.minX+80);
+                var cardH=Math.max(1,cardBounds.maxY-cardBounds.minY+80);
+                var cardScale=clampCodeViewFitScale(0.88/Math.max(cardW/w,cardH/h));
+                return d3.zoomIdentity.translate(w/2-cardScale*cardBounds.cx,h/2-cardScale*cardBounds.cy).scale(cardScale);
+            }
+        }
+        var xs=nodes.map(function(n){return n.x;}),ys=nodes.map(function(n){return n.y;});
+        var minX=Math.min.apply(null,xs),maxX=Math.max.apply(null,xs),minY=Math.min.apply(null,ys),maxY=Math.max.apply(null,ys);
         var scale=0.8/Math.max((maxX-minX+paddingSlack)/w,(maxY-minY+paddingSlack)/h);
         return d3.zoomIdentity.translate(w/2-scale*(minX+maxX)/2,h/2-scale*(minY+maxY)/2).scale(Math.min(scale,2));
     }
