@@ -42,8 +42,9 @@ test('remaining Code nodes are pushed out from under cards', () => {
   context.unburyNodesFromCards(nodes, cards, sizes, 20);
   assert.equal(nodes[0].x, 100);
   assert.equal(nodes[0].y, 100);
-  const buried = Math.abs(nodes[1].x - 100) <= 220 && Math.abs(nodes[1].y - 100) <= 120;
+  const buried = Math.abs(nodes[1].x - 100) < 220 && Math.abs(nodes[1].y - 100) < 120;
   assert.equal(buried, false);
+  assert.ok(Math.abs(nodes[1].x - 100) >= 220 || Math.abs(nodes[1].y - 100) >= 120);
 });
 
 test('connected files include both directions', () => {

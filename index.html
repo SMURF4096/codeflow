@@ -5736,7 +5736,7 @@ function unburyNodesFromCards(nodes,cardPaths,sizesByPath,pad){
                 var size=(sizesByPath&&sizesByPath[card.id])||codeCardSize(null);
                 var hw=size.width/2+pad,hh=size.height/2+pad;
                 var dx=node.x-card.x,dy=node.y-card.y;
-                if(Math.abs(dx)>hw||Math.abs(dy)>hh)return;
+                if(Math.abs(dx)>=hw||Math.abs(dy)>=hh)return;
                 var left=hw+dx,right=hw-dx,top=hh+dy,bottom=hh-dy;
                 var min=Math.min(left,right,top,bottom);
                 if(min===left)node.x=card.x-hw;
