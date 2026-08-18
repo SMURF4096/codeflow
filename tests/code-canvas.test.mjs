@@ -198,6 +198,17 @@ test('opened code paths append without reshuffling the set', () => {
   assert.deepEqual(J(context.openCodeCardPaths(['a.js', 'b.js'], 'a.js')), ['a.js', 'b.js']);
   const capped = Array.from({ length: context.CODE_CARD_MAX }, (_, i) => 'f' + i + '.js');
   assert.deepEqual(J(context.openCodeCardPaths(capped, 'extra.js')), capped);
+  const rejected = context.resolveOpenCodeCard(capped, 'extra.js');
+  assert.equal(rejected.opened, false);
+  assert.equal(rejected.inserted, false);
+  assert.deepEqual(J(rejected.paths), capped);
+  const already = context.resolveOpenCodeCard(['a.js', 'b.js'], 'a.js');
+  assert.equal(already.opened, true);
+  assert.equal(already.inserted, false);
+  const added = context.resolveOpenCodeCard(['a.js'], 'b.js');
+  assert.equal(added.opened, true);
+  assert.equal(added.inserted, true);
+  assert.deepEqual(J(added.paths), ['a.js', 'b.js']);
 });
 
 test('opened code files ignore the current selection', () => {
@@ -331,6 +342,19 @@ test('hydrating file contents does not change the graph structure key', () => {
   assert.notEqual(
     context.codeViewSceneKey(before, null, 'code'),
     context.codeViewSceneKey(swapped, null, 'code')
+  );
+  const moved = {
+    files: [{ path: 'a.js', folder: 'src', layer: 'utils', churn: 0, functions: [] }, { path: 'b.js' }],
+    connections: [{ source: 'a.js', target: 'b.js' }]
+  };
+  const restyled = {
+    files: [{ path: 'a.js', folder: 'lib', layer: 'ui', churn: 3, functions: [{ name: 'a' }] }, { path: 'b.js' }],
+    connections: [{ source: 'a.js', target: 'b.js' }]
+  };
+  assert.notEqual(context.graphStructureKey(moved, null), context.graphStructureKey(restyled, null));
+  assert.equal(
+    context.fileGraphIdentity({ path: 'a.js', content: 'x', folder: 'src', layer: 'utils', functions: [] }),
+    context.fileGraphIdentity({ path: 'a.js', content: 'y', folder: 'src', layer: 'utils', functions: [] })
   );
 });
 
@@ -562,6 +586,8 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /codeViewCameraReadyRef/);
   assert.match(htmlSource, /graphRebuildKey/);
   assert.match(htmlSource, /connectionIdentity/);
+  assert.match(htmlSource, /fileGraphIdentity/);
+  assert.match(htmlSource, /resolveOpenCodeCard/);
   assert.match(htmlSource, /codeViewSceneKey/);
   assert.match(htmlSource, /naturalWidth>width/);
   assert.match(htmlSource, /!byPath\[selectedPath\]/);

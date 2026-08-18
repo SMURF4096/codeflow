@@ -5962,6 +5962,14 @@ function openCodeCardPaths(prev,path,limit){
     return list;
 }
 
+function resolveOpenCodeCard(prev,path,limit){
+    var before=prev||[];
+    var next=openCodeCardPaths(before,path,limit);
+    var already=!!(path&&before.indexOf(path)>=0);
+    var inserted=!!(path&&!already&&next.indexOf(path)>=0);
+    return{paths:next,already:already,inserted:inserted,opened:already||inserted};
+}
+
 function filesForOpenedCodePaths(paths,data,folderFilter){
     if(!data||!data.files)return[];
     var filtered=folderFilter?data.files.filter(function(f){return f.folder===folderFilter||f.folder.startsWith(folderFilter+'/');}):data.files;
@@ -6142,11 +6150,17 @@ function connectionIdentity(connection){
     return String(src||'')+'\t'+String(tgt||'')+'\t'+String((connection&&connection.fn)||'')+'\t'+String(count);
 }
 
+function fileGraphIdentity(file){
+    if(!file)return '';
+    var fnCount=file.functions&&file.functions.length?file.functions.length:0;
+    return [file.path||'',file.name||'',file.folder||'',file.layer||'',file.churn||0,fnCount].join('\t');
+}
+
 function graphStructureKey(data,folderFilter){
     if(!data||!data.files)return '';
-    var paths=data.files.map(function(file){return file.path;}).join('\n');
+    var files=data.files.map(fileGraphIdentity).join('\n');
     var connections=(data.connections||[]).map(connectionIdentity).sort().join('\n');
-    return String(folderFilter||'')+'\n'+paths+'\n'+connections;
+    return String(folderFilter||'')+'\n'+files+'\n'+connections;
 }
 
 function codeViewSceneKey(data,folderFilter,vizType){
@@ -8270,9 +8284,10 @@ function App(){
     },[data,repoInfo,localSourceKind,isMobile,graphConfig.vizType]);
     selectFileRef.current=selectFile;
     function openCodeFile(path){
-        var isNew=openedCodePaths.indexOf(path)<0;
+        var resolved=resolveOpenCodeCard(openedCodePaths,path);
+        if(!resolved.opened)return;
         setOpenedCodePaths(function(prev){return openCodeCardPaths(prev,path);});
-        if(isNew)pendingFlyToRef.current=path;
+        if(resolved.inserted)pendingFlyToRef.current=path;
         selectFile(path);
     }
     openCodeFileRef.current=openCodeFile;
