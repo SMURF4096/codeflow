@@ -6331,9 +6331,23 @@ function codeViewSceneKey(data,folderFilter,vizType,source){
     return analysisHydrationId(source,data)+'|'+String(folderFilter||'')+'|'+String(vizType||'');
 }
 
-function analysisHydrationId(source,data){
+function analysisHydrationIdFromParts(source,graphKey){
     source=source||{};
-    return [source.sourceType||'',source.sourceKey||'',analysisGraphKey(data)].join('\0');
+    return [source.sourceType||'',source.sourceKey||'',graphKey||''].join('\0');
+}
+
+function analysisHydrationId(source,data){
+    return analysisHydrationIdFromParts(source,analysisGraphKey(data));
+}
+
+function loadedAnalysisSourceIdentity(options){
+    options=options||{};
+    if(options.localSourceKind==='folder')return{sourceType:'folder',sourceKey:options.folderKey||'local-folder'};
+    if(options.localSourceKind==='zip')return{sourceType:'zip',sourceKey:options.zipKey||'zip'};
+    if(options.localSourceKind==='cli')return{sourceType:'cli',sourceKey:options.cliRoot||'cli'};
+    if(options.githubOwner&&options.githubRepo)return{sourceType:'github',sourceKey:options.githubKey||(options.githubOwner+'/'+options.githubRepo)};
+    if(options.cliOk)return{sourceType:'cli',sourceKey:options.cliRoot||'cli'};
+    return null;
 }
 
 function hydrationRequestIsCurrent(hydrationId,currentId){
@@ -6524,6 +6538,11 @@ function isCodeCanvasDeselectTarget(target,svg){
     if(target===svg)return true;
     if(target.getAttribute&&target.getAttribute('data-code-bg')==='1')return true;
     return !!(target.closest&&target.closest('[data-code-bg="1"]'));
+}
+
+function isCodeCanvasNativeScrollTarget(target){
+    if(!target||!target.closest)return false;
+    return !!(target.closest('.code-card.clipped .code-card-body')||target.closest('.code-sym-list'));
 }
 
 function collectCrossFileSymbols(files,connections){
@@ -7474,15 +7493,34 @@ function App(){
     }
 
     function currentAnalysisSource(){
-        if(cliStatus&&cliStatus.ok)return{sourceType:'cli',sourceKey:cliStatus.root||'cli',title:cliStatus.name||'Local watch',repoUrl:'',localSourceKind:'cli'};
         if(localSourceKind==='folder')return{sourceType:'folder',sourceKey:(repoInfo&&(repoInfo.folderKey||repoInfo.name))||'local-folder',title:(repoInfo&&repoInfo.name)||'Local Folder',repoUrl:'',localSourceKind:'folder'};
         if(localSourceKind==='zip')return{sourceType:'zip',sourceKey:(repoInfo&&(repoInfo.zipKey||repoInfo.name))||'zip',title:(repoInfo&&repoInfo.name)||'ZIP Archive',repoUrl:'',localSourceKind:'zip'};
+        if(localSourceKind==='cli')return{sourceType:'cli',sourceKey:(repoInfo&&repoInfo.cliRoot)||(cliStatus&&cliStatus.root)||'cli',title:(cliStatus&&cliStatus.name)||(repoInfo&&repoInfo.name)||'Local watch',repoUrl:'',localSourceKind:'cli'};
         if(repoInfo&&repoInfo.owner&&repoInfo.repo&&repoInfo.owner!=='local')return{sourceType:'github',sourceKey:githubCacheSourceKey(repoInfo.owner,repoInfo.repo,activeExcludePatterns),title:repoInfo.owner+'/'+repoInfo.repo,repoUrl:repoInfo.owner+'/'+repoInfo.repo,localSourceKind:null};
         var parsed=parseUrl(repoUrl);
         if(parsed)return{sourceType:'github',sourceKey:githubCacheSourceKey(parsed.owner,parsed.repo,activeExcludePatterns),title:parsed.owner+'/'+parsed.repo,repoUrl:parsed.owner+'/'+parsed.repo,localSourceKind:null};
+        if(cliStatus&&cliStatus.ok)return{sourceType:'cli',sourceKey:cliStatus.root||'cli',title:cliStatus.name||'Local watch',repoUrl:'',localSourceKind:'cli'};
         return null;
     }
-    var currentHydrationId=analysisHydrationId(currentAnalysisSource(),data);
+    var analysisGraphIdentity=useMemo(function(){return analysisGraphKey(data);},[data]);
+    var loadedSourceIdentity=useMemo(function(){
+        var parsed=parseUrl(repoUrl);
+        var githubOwner=repoInfo&&repoInfo.owner&&repoInfo.owner!=='local'?repoInfo.owner:(parsed&&parsed.owner);
+        var githubRepo=repoInfo&&repoInfo.owner&&repoInfo.owner!=='local'?repoInfo.repo:(parsed&&parsed.repo);
+        return loadedAnalysisSourceIdentity({
+            localSourceKind:localSourceKind,
+            folderKey:repoInfo&&(repoInfo.folderKey||repoInfo.name),
+            zipKey:repoInfo&&(repoInfo.zipKey||repoInfo.name),
+            cliRoot:(repoInfo&&repoInfo.cliRoot)||(cliStatus&&cliStatus.root),
+            cliOk:!!(cliStatus&&cliStatus.ok),
+            githubOwner:githubOwner,
+            githubRepo:githubRepo,
+            githubKey:githubOwner&&githubRepo?githubCacheSourceKey(githubOwner,githubRepo,activeExcludePatterns):null
+        });
+    },[localSourceKind,repoInfo,repoUrl,activeExcludePatterns,cliStatus]);
+    var currentHydrationId=useMemo(function(){
+        return analysisHydrationIdFromParts(loadedSourceIdentity,analysisGraphIdentity);
+    },[loadedSourceIdentity,analysisGraphIdentity]);
     analysisHydrationIdRef.current=currentHydrationId;
 
     function refreshRecentList(){
@@ -8772,7 +8810,7 @@ function App(){
         if(!el||graphConfig.vizType!=='code')return;
         function onWheel(e){
             if(!zoomRef.current||!svgRef.current)return;
-            if(e.target&&e.target.closest&&e.target.closest('.code-card.clipped .code-card-body'))return;
+            if(isCodeCanvasNativeScrollTarget(e.target))return;
             var action=codeViewWheelAction(e);
             e.preventDefault();
             var svg=d3.select(svgRef.current);

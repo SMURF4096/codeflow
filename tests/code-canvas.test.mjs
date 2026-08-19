@@ -779,6 +779,53 @@ test('selection reads the live body scrollTop of a previously scrolled card', ()
   assert.equal(context.readCodeCardBodyScroll(layer, ''), 0);
 });
 
+test('hydration IDs follow the loaded analysis, not a live CLI session', () => {
+  const data = { files: [{ path: 'src/index.js', name: 'index.js' }], connections: [] };
+  const graph = context.analysisGraphKey(data);
+  const watchingGithub = {
+    localSourceKind: null,
+    cliOk: true,
+    cliRoot: '/watch',
+    githubOwner: 'owner',
+    githubRepo: 'alpha',
+    githubKey: 'owner/alpha'
+  };
+  const alpha = context.loadedAnalysisSourceIdentity(watchingGithub);
+  const beta = context.loadedAnalysisSourceIdentity(Object.assign({}, watchingGithub, {
+    githubRepo: 'beta',
+    githubKey: 'owner/beta'
+  }));
+  assert.equal(alpha.sourceType, 'github');
+  assert.equal(alpha.sourceKey, 'owner/alpha');
+  assert.equal(beta.sourceKey, 'owner/beta');
+  assert.notEqual(
+    context.analysisHydrationIdFromParts(alpha, graph),
+    context.analysisHydrationIdFromParts(beta, graph)
+  );
+  const cli = context.loadedAnalysisSourceIdentity({
+    localSourceKind: 'cli',
+    cliOk: true,
+    cliRoot: '/watch',
+    githubOwner: 'owner',
+    githubRepo: 'alpha',
+    githubKey: 'owner/alpha'
+  });
+  assert.equal(cli.sourceType, 'cli');
+  assert.equal(cli.sourceKey, '/watch');
+});
+
+test('symbol list wheel stays native instead of panning the canvas', () => {
+  const list = { closest(sel) { return sel === '.code-sym-list' ? this : null; } };
+  const chip = { closest(sel) { return sel === '.code-sym-list' ? list : null; } };
+  const body = { closest(sel) { return sel === '.code-card.clipped .code-card-body' ? this : null; } };
+  const canvas = { closest() { return null; } };
+  assert.equal(context.isCodeCanvasNativeScrollTarget(list), true);
+  assert.equal(context.isCodeCanvasNativeScrollTarget(chip), true);
+  assert.equal(context.isCodeCanvasNativeScrollTarget(body), true);
+  assert.equal(context.isCodeCanvasNativeScrollTarget(canvas), false);
+  assert.equal(context.isCodeCanvasNativeScrollTarget(null), false);
+});
+
 test('folder frames count as canvas background for deselect', () => {
   const svg = { id: 'svg' };
   const hull = {
@@ -832,8 +879,12 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /recordCodeSourceFailureIfCurrent/);
   assert.match(htmlSource, /hydrationRequestIsCurrent/);
   assert.match(htmlSource, /analysisGraphKey/);
-  assert.match(htmlSource, /analysisHydrationId\(currentAnalysisSource\(\),data\)/);
-  assert.doesNotMatch(htmlSource, /analysisHydrationId\(currentAnalysisSource\(\),data,folderFilter\)/);
+  assert.match(htmlSource, /analysisGraphIdentity/);
+  assert.match(htmlSource, /analysisHydrationIdFromParts/);
+  assert.match(htmlSource, /loadedAnalysisSourceIdentity/);
+  assert.match(htmlSource, /isCodeCanvasNativeScrollTarget/);
+  assert.match(htmlSource, /isCodeCanvasNativeScrollTarget\(e\.target\)/);
+  assert.doesNotMatch(htmlSource, /analysisHydrationId\(currentAnalysisSource\(\),data\)/);
   assert.match(htmlSource, /retryCodeSource/);
   assert.match(htmlSource, /sourceState==='failed'/);
   assert.match(htmlSource, /hiddenOpenedCodePaths/);
