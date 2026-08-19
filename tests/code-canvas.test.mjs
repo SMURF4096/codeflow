@@ -152,6 +152,9 @@ test('Code view seeds cards without waiting for a click', () => {
   assert.deepEqual(J(visible).map((f) => f.path), ['hub.js', 'leaf.js']);
   assert.equal(context.defaultCodeViewSeed({ files: [], connections: [] }, null), null);
   assert.equal(context.codeViewSeedPath('leaf.js', { files: [], connections: [] }, null), null);
+  assert.equal(context.codeFileNavOpensCard('code'), true);
+  assert.equal(context.codeFileNavOpensCard('graph'), false);
+  assert.equal(context.codeFileNavOpensCard(null), false);
 });
 
 test('returning to Code opens the current selection without dropping old cards', () => {
@@ -782,6 +785,11 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /defaultCodeViewSeed/);
   assert.match(htmlSource, /codeViewSeedPath/);
   assert.match(htmlSource, /codeViewSeedPath\(selected&&selected\.path/);
+  assert.match(htmlSource, /codeFileNavOpensCard/);
+  assert.match(htmlSource, /function goToFile\(/);
+  assert.match(htmlSource, /className:'blast-file',onClick:function\(\)\{goToFile\(path\);\}/);
+  assert.match(htmlSource, /className:'conn-goto',onClick:function\(\)\{goToFile\(conn\.file\);\}/);
+  assert.match(htmlSource, /currentHydrationId,/);
   assert.match(htmlSource, /shouldSeedOpenedCodeCards/);
   assert.match(htmlSource, /ensureCodeViewOpenedPaths/);
   assert.match(htmlSource, /codeViewSessionRef/);

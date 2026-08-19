@@ -5834,6 +5834,10 @@ function shouldSeedOpenedCodeCards(inCode,sessionActive,openedPaths){
     return !(openedPaths&&openedPaths.length);
 }
 
+function codeFileNavOpensCard(vizType){
+    return vizType==='code';
+}
+
 function collectVisibleCodeFiles(selectedPath,data,folderFilter,limit){
     if(!data||!data.files)return[];
     var filtered=folderFilter?data.files.filter(function(f){return f.folder===folderFilter||f.folder.startsWith(folderFilter+'/');}):data.files;
@@ -8451,6 +8455,10 @@ function App(){
         selectFile(path);
     }
     openCodeFileRef.current=openCodeFile;
+    function goToFile(path){
+        if(codeFileNavOpensCard(graphConfig.vizType))openCodeFile(path);
+        else selectFile(path);
+    }
 
     function updateGraphHighlight(path,blast){
         if(!nodesRef.current||!linksRef.current)return;
@@ -8632,6 +8640,7 @@ function App(){
 
     var graphRebuildKey=useMemo(function(){
         return [
+            currentHydrationId,
             graphStructureKey(data,folderFilter),
             colorMode,
             theme,
@@ -8642,7 +8651,7 @@ function App(){
             graphConfig.showLabels,
             graphConfig.curvedLinks
         ].join('\0');
-    },[data,folderFilter,colorMode,theme,graphConfig]);
+    },[currentHydrationId,data,folderFilter,colorMode,theme,graphConfig]);
     var codeViewFiles=useMemo(function(){
         if(!data)return[];
         var paths=openedCodePaths;
@@ -10631,7 +10640,7 @@ function App(){
                     folderFilter
                 )
             ),
-            React.createElement('div',{className:'sidebar-scroll'},React.createElement(TreeNode,{node:data.tree,selected:selected,onSelect:function(path){if(graphConfig.vizType==='code')openCodeFile(path);else selectFile(path);},expanded:expandedPaths,toggle:togglePath,filterFolder:filterByFolder,activeFilter:folderFilter}))
+            React.createElement('div',{className:'sidebar-scroll'},React.createElement(TreeNode,{node:data.tree,selected:selected,onSelect:goToFile},expanded:expandedPaths,toggle:togglePath,filterFolder:filterByFolder,activeFilter:folderFilter}))
         );
     }
     function beginCodeCardDrag(e,file){
@@ -11210,12 +11219,12 @@ function App(){
                                     ),
                                     blastRadius.affected.length>0&&React.createElement('div',{className:'blast-detail'},
                                         React.createElement('div',{style:{fontSize:9,fontWeight:600,marginBottom:6}},'Files that import from this:'),
-                                        blastRadius.affected.slice(0,8).map(function(path){return React.createElement('div',{key:path,className:'blast-file',onClick:function(){selectFile(path);}},React.createElement(Icon,{name:'file',size:'s'}),' ',path.split('/').pop());}),
+                                        blastRadius.affected.slice(0,8).map(function(path){return React.createElement('div',{key:path,className:'blast-file',onClick:function(){goToFile(path);}},React.createElement(Icon,{name:'file',size:'s'}),' ',path.split('/').pop());}),
                                         blastRadius.affected.length>8&&React.createElement('div',{style:{fontSize:9,color:'var(--t3)',marginTop:4}},'+',blastRadius.affected.length-8,' more')
                                     ),
                                     (blastRadius.dependencies||[]).length>0&&React.createElement('div',{className:'blast-detail',style:{marginTop:8}},
                                         React.createElement('div',{style:{fontSize:9,fontWeight:600,marginBottom:6,color:'var(--orange)'}},'Dependencies (risk if these change):'),
-                                        blastRadius.dependencies.slice(0,5).map(function(path){return React.createElement('div',{key:path,className:'blast-file',onClick:function(){selectFile(path);}},React.createElement(Icon,{name:'file',size:'s'}),' ',path.split('/').pop());}),
+                                        blastRadius.dependencies.slice(0,5).map(function(path){return React.createElement('div',{key:path,className:'blast-file',onClick:function(){goToFile(path);}},React.createElement(Icon,{name:'file',size:'s'}),' ',path.split('/').pop());}),
                                         blastRadius.dependencies.length>5&&React.createElement('div',{style:{fontSize:9,color:'var(--t3)',marginTop:4}},'+',blastRadius.dependencies.length-5,' more')
                                     )
                                 )
@@ -11257,7 +11266,7 @@ function App(){
                                                             React.createElement('span',{className:'conn-fn-name'},fn.name,'()'),
                                                             React.createElement('span',{className:'conn-fn-count'},fn.count,'×')
                                                         );}),
-                                                        React.createElement('div',{className:'conn-goto',onClick:function(){selectFile(conn.file);}},'→ View ',conn.file.split('/').pop())
+                                                        React.createElement('div',{className:'conn-goto',onClick:function(){goToFile(conn.file);}},'→ View ',conn.file.split('/').pop())
                                                     )
                                                 );
                                             }),
@@ -11279,7 +11288,7 @@ function App(){
                                                             React.createElement('span',{className:'conn-fn-name'},fn.name,'()'),
                                                             React.createElement('span',{className:'conn-fn-count'},fn.count,'×')
                                                         );}),
-                                                        React.createElement('div',{className:'conn-goto',onClick:function(){selectFile(conn.file);}},'→ View ',conn.file.split('/').pop())
+                                                        React.createElement('div',{className:'conn-goto',onClick:function(){goToFile(conn.file);}},'→ View ',conn.file.split('/').pop())
                                                     )
                                                 );
                                             }),
@@ -11322,7 +11331,7 @@ function App(){
                                                 fn.code&&React.createElement('div',{className:'fn-code'},fn.code),
                                                 st&&st.callers&&st.callers.length>0&&React.createElement('div',{className:'fn-callers'},
                                                     React.createElement('div',{className:'fn-callers-title'},'External callers:'),
-                                                    st.callers.slice(0,8).map(function(c,i){return React.createElement('div',{key:i,className:'fn-caller',onClick:function(){selectFile(c.file);}},
+                                                    st.callers.slice(0,8).map(function(c,i){return React.createElement('div',{key:i,className:'fn-caller',onClick:function(){goToFile(c.file);}},
                                                         React.createElement(Icon,{name:'file',size:'s'}),
                                                         React.createElement('span',null,c.name),
                                                         React.createElement('span',{style:{marginLeft:'auto',color:'var(--t3)'}},c.count,'×')
@@ -11648,7 +11657,7 @@ function App(){
                                 React.createElement('div',{style:{fontWeight:600,fontSize:11}},item.name),
                                 item.file&&React.createElement('div',{style:{display:'flex',gap:6}},
                                     React.createElement('button',{className:'view-file-btn',onClick:function(e){e.stopPropagation();openFilePreview(item.file,item.line);}},iconLabel('eye','View')),
-                                    React.createElement('button',{style:{fontSize:9,padding:'4px 8px',background:'var(--acc)',color:'var(--bg0)',border:'none',borderRadius:4,cursor:'pointer'},onClick:function(e){e.stopPropagation();selectFile(item.file);setDrillDown(null);}},'Go to file →')
+                                    React.createElement('button',{style:{fontSize:9,padding:'4px 8px',background:'var(--acc)',color:'var(--bg0)',border:'none',borderRadius:4,cursor:'pointer'},onClick:function(e){e.stopPropagation();goToFile(item.file);setDrillDown(null);}},'Go to file →')
                                 )
                             ),
                             item.file&&React.createElement('div',{style:{fontSize:10,color:'var(--t3)',marginTop:4,fontFamily:'monospace'}},item.file,item.line?' : '+item.line:''),
@@ -11664,10 +11673,10 @@ function App(){
                             item.files&&React.createElement('div',{style:{marginTop:8}},
                                 React.createElement('div',{style:{fontSize:9,color:'var(--t3)',marginBottom:4}},'Locations:'),
                                 item.files.map(function(f,k){return React.createElement('div',{key:k,style:{fontSize:9,color:'var(--t2)',padding:'4px 8px',background:'var(--bg2)',borderRadius:4,marginBottom:4,display:'flex',justifyContent:'space-between',alignItems:'center'}},
-                                    React.createElement('span',{style:{fontFamily:'monospace',cursor:'pointer',flex:1},onClick:function(){selectFile(f.file||f);setDrillDown(null);}},typeof f==='string'?f.split('/').pop():(f.file||'').split('/').pop(),f.line?' :'+f.line:''),
+                                    React.createElement('span',{style:{fontFamily:'monospace',cursor:'pointer',flex:1},onClick:function(){goToFile(f.file||f);setDrillDown(null);}},typeof f==='string'?f.split('/').pop():(f.file||'').split('/').pop(),f.line?' :'+f.line:''),
                                     React.createElement('div',{style:{display:'flex',gap:4}},
                                         React.createElement('button',{className:'view-file-btn',onClick:function(e){e.stopPropagation();openFilePreview(f.file||f,f.line);}},React.createElement(Icon,{name:'eye',size:'s'})),
-                                        React.createElement('span',{style:{color:'var(--acc)',cursor:'pointer'},onClick:function(){selectFile(f.file||f);setDrillDown(null);}},'→')
+                                        React.createElement('span',{style:{color:'var(--acc)',cursor:'pointer'},onClick:function(){goToFile(f.file||f);setDrillDown(null);}},'→')
                                     )
                                 );})
                             )
@@ -11688,10 +11697,10 @@ function App(){
                         React.createElement('div',{style:{fontSize:12,fontWeight:600,marginBottom:12}},'All Files (',drillDown.data.files.length,')'),
                         drillDown.data.files.map(function(f,j){return React.createElement('div',{key:j,style:getAccentBlockStyle('rgba(0,255,157,0.28)','rgba(0,255,157,0.08)',{padding:12,marginBottom:8})},
                             React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
-                                React.createElement('div',{style:{fontWeight:600,fontSize:11,cursor:'pointer'},onClick:function(){selectFile(f.path);setDrillDown(null);}},f.name),
+                                React.createElement('div',{style:{fontWeight:600,fontSize:11,cursor:'pointer'},onClick:function(){goToFile(f.path);setDrillDown(null);}},f.name),
                                 React.createElement('button',{className:'view-file-btn',onClick:function(e){e.stopPropagation();openFilePreview(f.path);}},iconLabel('eye','View'))
                             ),
-                            React.createElement('div',{style:{fontSize:10,color:'var(--t3)',marginTop:4,fontFamily:'monospace',cursor:'pointer'},onClick:function(){selectFile(f.path);setDrillDown(null);}},f.path),
+                            React.createElement('div',{style:{fontSize:10,color:'var(--t3)',marginTop:4,fontFamily:'monospace',cursor:'pointer'},onClick:function(){goToFile(f.path);setDrillDown(null);}},f.path),
                             f.fns&&React.createElement('div',{style:{fontSize:10,color:'var(--orange)',marginTop:4}},f.fns,' functions'),
                             f.lines&&React.createElement('div',{style:{fontSize:10,color:'var(--purple)',marginTop:4}},f.lines,' lines')
                         );})
@@ -11711,10 +11720,10 @@ function App(){
                         React.createElement('div',{style:{fontSize:12,fontWeight:600,marginBottom:12}},'Location'),
                         React.createElement('div',{style:{background:'var(--bg0)',padding:12,borderRadius:8,marginBottom:16}},
                             React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
-                                React.createElement('div',{style:{fontWeight:600,fontSize:11,cursor:'pointer'},onClick:function(){selectFile(drillDown.data.path);setDrillDown(null);}},drillDown.data.file),
+                                React.createElement('div',{style:{fontWeight:600,fontSize:11,cursor:'pointer'},onClick:function(){goToFile(drillDown.data.path);setDrillDown(null);}},drillDown.data.file),
                                 React.createElement('button',{className:'view-file-btn',onClick:function(e){e.stopPropagation();openFilePreview(drillDown.data.path,drillDown.data.line);}},iconLabel('eye','View'))
                             ),
-                            React.createElement('div',{style:{fontSize:10,color:'var(--t3)',marginTop:4,fontFamily:'monospace',cursor:'pointer'},onClick:function(){selectFile(drillDown.data.path);setDrillDown(null);}},drillDown.data.path),
+                            React.createElement('div',{style:{fontSize:10,color:'var(--t3)',marginTop:4,fontFamily:'monospace',cursor:'pointer'},onClick:function(){goToFile(drillDown.data.path);setDrillDown(null);}},drillDown.data.path),
                             drillDown.data.line&&React.createElement('div',{style:{fontSize:10,color:'var(--orange)',marginTop:4}},'Line ',drillDown.data.line)
                         ),
                         drillDown.data.code&&React.createElement(React.Fragment,null,
@@ -11740,10 +11749,10 @@ function App(){
                             ? getAccentBlockStyle('rgba(167,139,250,0.34)','rgba(167,139,250,0.08)',{padding:12,marginBottom:8})
                             : getAccentBlockStyle('rgba(255,159,67,0.34)','rgba(255,159,67,0.08)',{padding:12,marginBottom:8})},
                             React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
-                                React.createElement('div',{style:{fontWeight:600,fontSize:11,cursor:'pointer'},onClick:function(){selectFile(f.file);setDrillDown(null);}},f.name||drillDown.data.name),
+                                React.createElement('div',{style:{fontWeight:600,fontSize:11,cursor:'pointer'},onClick:function(){goToFile(f.file);setDrillDown(null);}},f.name||drillDown.data.name),
                                 React.createElement('button',{className:'view-file-btn',onClick:function(e){e.stopPropagation();openFilePreview(f.file,f.line);}},iconLabel('eye','View'))
                             ),
-                            React.createElement('div',{style:{fontSize:10,color:'var(--t3)',marginTop:4,fontFamily:'monospace',cursor:'pointer'},onClick:function(){selectFile(f.file);setDrillDown(null);}},f.file),
+                            React.createElement('div',{style:{fontSize:10,color:'var(--t3)',marginTop:4,fontFamily:'monospace',cursor:'pointer'},onClick:function(){goToFile(f.file);setDrillDown(null);}},f.file),
                             f.line&&React.createElement('div',{style:{fontSize:10,color:'var(--orange)',marginTop:4}},'Line ',f.line)
                         );}),
                         React.createElement('div',{style:{fontSize:12,fontWeight:600,marginBottom:12,marginTop:16}},'Suggested Action'),
@@ -11839,7 +11848,7 @@ function App(){
                                     React.createElement('div',{className:'unused-fn-path'},
                                         React.createElement('span',null,React.createElement(Icon,{name:'folder',size:'s'}),' ',fn.folder||'root'),
                                         React.createElement('span',null,'→'),
-                                        React.createElement('span',{className:'unused-fn-file',onClick:function(e){e.stopPropagation();selectFile(fn.file);setShowUnused(false);}},fn.file.split('/').pop())
+                                        React.createElement('span',{className:'unused-fn-file',onClick:function(e){e.stopPropagation();goToFile(fn.file);setShowUnused(false);}},fn.file.split('/').pop())
                                     )
                                 ),
                                 React.createElement('div',{className:'unused-fn-meta'},
