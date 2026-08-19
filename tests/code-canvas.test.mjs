@@ -157,6 +157,30 @@ test('Code view seeds cards without waiting for a click', () => {
   assert.equal(context.codeFileNavOpensCard(null), false);
 });
 
+test('out-of-filter Code nav clears the folder filter so the target card can render', () => {
+  const files = [
+    { path: 'src/a.js', folder: 'src', name: 'a.js' },
+    { path: 'src/b.js', folder: 'src', name: 'b.js' },
+    { path: 'lib/out.js', folder: 'lib', name: 'out.js' }
+  ];
+  const data = { files };
+  assert.equal(context.fileMatchesFolderFilter(files[0], 'src'), true);
+  assert.equal(context.fileMatchesFolderFilter(files[2], 'src'), false);
+  assert.equal(context.pathMatchesFolderFilter('src/a.js', data, 'src'), true);
+  assert.equal(context.pathMatchesFolderFilter('lib/out.js', data, 'src'), false);
+  assert.equal(context.folderFilterAfterCodeNav('src/a.js', data, 'src'), 'src');
+  assert.equal(context.folderFilterAfterCodeNav('lib/out.js', data, 'src'), null);
+  assert.equal(context.folderFilterAfterCodeNav('lib/out.js', data, null), null);
+  assert.deepEqual(
+    J(context.filesForOpenedCodePaths(['src/a.js', 'lib/out.js'], data, 'src')).map((f) => f.path),
+    ['src/a.js']
+  );
+  assert.deepEqual(
+    J(context.filesForOpenedCodePaths(['src/a.js', 'lib/out.js'], data, null)).map((f) => f.path),
+    ['src/a.js', 'lib/out.js']
+  );
+});
+
 test('returning to Code opens the current selection without dropping old cards', () => {
   const data = {
     files: [
@@ -376,6 +400,31 @@ test('filtered-out cards do not consume the open-card cap', () => {
   const refused = context.resolveOpenCodeCard(capped, 'src/extra.js', null, false, visibleHidden);
   assert.equal(refused.opened, false);
   assert.deepEqual(J(refused.paths), capped);
+});
+
+test('out-of-filter Code nav at the card cap replaces so the target opens', () => {
+  const files = Array.from({ length: context.CODE_CARD_MAX }, (_, i) => ({
+    path: 'src/f' + i + '.js',
+    folder: 'src',
+    name: 'f' + i + '.js'
+  }));
+  files.push({ path: 'lib/new.js', folder: 'lib', name: 'new.js' });
+  const data = { files };
+  const capped = files.slice(0, context.CODE_CARD_MAX).map((file) => file.path);
+  const nextFilter = context.folderFilterAfterCodeNav('lib/new.js', data, 'src');
+  assert.equal(nextFilter, null);
+  const keptHidden = context.hiddenOpenedCodePaths(capped, data, 'src');
+  const refused = context.resolveOpenCodeCard(capped, 'lib/new.js', null, false, keptHidden);
+  assert.equal(refused.opened, false);
+  const hidden = context.hiddenOpenedCodePaths(capped, data, nextFilter);
+  const opened = context.resolveOpenCodeCard(capped, 'lib/new.js', null, true, hidden);
+  assert.equal(opened.opened, true);
+  assert.equal(opened.inserted, true);
+  assert.equal(opened.paths[opened.paths.length - 1], 'lib/new.js');
+  assert.equal(
+    context.filesForOpenedCodePaths(opened.paths, data, nextFilter).some((file) => file.path === 'lib/new.js'),
+    true
+  );
 });
 
 test('wheel pan deltas stay screen-pixel based across zoom', () => {
@@ -650,6 +699,37 @@ test('GitHub cache keys include the exclude pattern set', () => {
   assert.equal(context.cachedAnalysisMatchesExcludes({ sourceKey: tests, data: { excludePatterns: ['tests/**'] } }, [{ raw: 'tests/**' }]), true);
   assert.equal(context.cachedAnalysisMatchesExcludes({ sourceKey: tests, data: { excludePatterns: ['tests/**'] } }, [{ raw: 'vendor/**' }]), false);
   assert.equal(context.analysisCacheKey('github', tests), 'github:' + tests);
+});
+
+test('loaded GitHub identity uses applied exclusions, not pending edits', () => {
+  const loaded = { files: [{ path: 'src/a.js', name: 'a.js' }], connections: [], excludePatterns: ['tests/**'] };
+  const pending = ['vendor/**'];
+  const fromLoaded = context.githubSourceKeyForLoadedAnalysis('owner', 'repo', loaded, pending);
+  const fromPending = context.githubSourceKeyForLoadedAnalysis('owner', 'repo', null, pending);
+  const appliedKey = context.githubCacheSourceKey('owner', 'repo', ['tests/**']);
+  const pendingKey = context.githubCacheSourceKey('owner', 'repo', pending);
+  assert.equal(fromLoaded, appliedKey);
+  assert.notEqual(fromLoaded, pendingKey);
+  assert.equal(fromPending, pendingKey);
+  assert.equal(
+    context.githubSourceKeyForLoadedAnalysis('owner', 'repo', { excludePatterns: [] }, pending),
+    context.githubCacheSourceKey('owner', 'repo', [])
+  );
+  const graph = context.analysisGraphKey(loaded);
+  const before = context.loadedAnalysisSourceIdentity({
+    githubOwner: 'owner',
+    githubRepo: 'repo',
+    githubKey: fromLoaded
+  });
+  const afterEdit = context.loadedAnalysisSourceIdentity({
+    githubOwner: 'owner',
+    githubRepo: 'repo',
+    githubKey: context.githubSourceKeyForLoadedAnalysis('owner', 'repo', loaded, ['docs/**'])
+  });
+  assert.equal(
+    context.analysisHydrationIdFromParts(before, graph),
+    context.analysisHydrationIdFromParts(afterEdit, graph)
+  );
 });
 
 test('CLI cache keys use the watched root instead of a shared fallback', () => {
@@ -980,6 +1060,10 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /retainedZipMatchesRecord/);
   assert.match(htmlSource, /cliRecordMatchesStatus/);
   assert.match(htmlSource, /githubCacheSourceKey/);
+  assert.match(htmlSource, /githubSourceKeyForLoadedAnalysis/);
+  assert.match(htmlSource, /folderFilterAfterCodeNav/);
+  assert.match(htmlSource, /setFolderFilter\(nextFilter\)/);
+  assert.match(htmlSource, /allowReplace=!!\(replace\|\|reveal\)/);
   assert.match(htmlSource, /filterAnalyzableLocalFiles\(/);
   assert.match(htmlSource, /asCodeLines\(highlightSyntax/);
   assert.match(htmlSource, /zipArchiveCacheMeta/);
