@@ -423,6 +423,30 @@ test('line-level code edges use bezier anchors, not card centers', () => {
   assert.equal(context.codeViewWheelAction({}), 'pan');
 });
 
+test('same-folder stacked cards route links through top and bottom edges', () => {
+  const upper = { id: 'src/a.js', x: 300, y: 200 };
+  const lower = { id: 'src/b.js', x: 300, y: 500 };
+  const sizes = {
+    'src/a.js': { width: 440, height: 200 },
+    'src/b.js': { width: 440, height: 200 }
+  };
+  const files = {
+    'src/a.js': { path: 'src/a.js', content: 'export function shared(){}\n', functions: [{ name: 'shared', line: 1 }] },
+    'src/b.js': { path: 'src/b.js', content: 'import { shared } from "./a.js";\n', functions: [] }
+  };
+  const cards = new Set(['src/a.js', 'src/b.js']);
+  assert.equal(context.codeLinkPrefersVertical(upper, lower), true);
+  assert.equal(context.codeLinkPrefersVertical({ x: 220, y: 200 }, { x: 800, y: 240 }), false);
+  const stacked = context.codeEdgeBezier(300, 300, 300, 400);
+  assert.equal(stacked, 'M300,300C300,380 300,320 300,400');
+  const path = context.codeCardLinkPath({ source: upper, target: lower, fn: 'shared' }, sizes, files, cards);
+  assert.equal(path, 'M300,300C300,380 300,320 300,400');
+  const reverse = context.codeCardLinkPath({ source: lower, target: upper, fn: 'shared' }, sizes, files, cards);
+  assert.equal(reverse, 'M300,400C300,320 300,380 300,300');
+  assert.ok(!path.includes('520,'));
+  assert.ok(!reverse.includes('80,'));
+});
+
 test('opened code cards auto-align by directory', () => {
   const files = [
     { path: 'src/a.js', folder: 'src' },
@@ -910,6 +934,7 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /applyOpenedCardPlacements/);
   assert.match(htmlSource, /codeCardLinkPath/);
   assert.match(htmlSource, /codeCardLinkEndpoint/);
+  assert.match(htmlSource, /codeLinkPrefersVertical/);
   assert.match(htmlSource, /code-line-pill/);
   assert.match(htmlSource, /defaultCodeViewSeed/);
   assert.match(htmlSource, /codeViewSeedPath/);

@@ -6193,8 +6193,20 @@ function codeCardLineY(size,line){
     return CODE_CARD_HEAD_HEIGHT+8+(n-0.5)*CODE_CARD_LINE_HEIGHT;
 }
 
+function codeLinkPrefersVertical(src,tgt){
+    if(!src||!tgt||!isFinite(src.x)||!isFinite(tgt.x))return false;
+    return Math.abs(src.x-tgt.x)<1;
+}
+
 function codeEdgeBezier(x1,y1,x2,y2){
-    var span=Math.max(80,Math.abs(x2-x1)*0.45);
+    var dxAbs=Math.abs(x2-x1);
+    var dyAbs=Math.abs(y2-y1);
+    if(dxAbs<1&&dyAbs>0){
+        var vspan=Math.max(80,dyAbs*0.45);
+        var dy=(y2<y1?-1:1)*vspan;
+        return 'M'+x1+','+y1+'C'+x1+','+(y1+dy)+' '+x2+','+(y2-dy)+' '+x2+','+y2;
+    }
+    var span=Math.max(80,dxAbs*0.45);
     var dx=(x2<x1?-1:1)*span;
     return 'M'+x1+','+y1+'C'+(x1+dx)+','+y1+' '+(x2-dx)+','+y2+' '+x2+','+y2;
 }
@@ -6233,9 +6245,15 @@ function codeCardAnchorY(node,size,line){
     return (node&&isFinite(node.y)?node.y:0)-size.height/2+y;
 }
 
-function codeCardLinkEndpoint(node,size,file,other,fn,isCard){
+function codeCardLinkEndpoint(node,size,file,other,fn,isCard,vertical){
     if(!isCard)return{x:node.x,y:node.y};
     size=size||codeCardSize(file);
+    if(vertical){
+        var top=node.y-size.height/2;
+        var bottom=node.y+size.height/2;
+        var towardY=other&&isFinite(other.y)?other.y:bottom+1;
+        return{x:node.x,y:towardY<node.y?top:bottom};
+    }
     var line=fn?codeCardSymbolLine(file,fn):null;
     var y=codeCardAnchorY(node,size,line);
     var left=node.x-size.width/2;
@@ -6257,8 +6275,9 @@ function codeCardLinkPath(link,sizesByPath,filesByPath,cardPaths){
     var srcSize=(sizesByPath&&sizesByPath[src.id])||codeCardSize(srcFile);
     var tgtSize=(sizesByPath&&sizesByPath[tgt.id])||codeCardSize(tgtFile);
     var fn=link.fn;
-    var p1=codeCardLinkEndpoint(src,srcSize,srcFile,tgt,fn,srcIsCard);
-    var p2=codeCardLinkEndpoint(tgt,tgtSize,tgtFile,src,fn,tgtIsCard);
+    var vertical=codeLinkPrefersVertical(src,tgt);
+    var p1=codeCardLinkEndpoint(src,srcSize,srcFile,tgt,fn,srcIsCard,vertical);
+    var p2=codeCardLinkEndpoint(tgt,tgtSize,tgtFile,src,fn,tgtIsCard,vertical);
     return codeEdgeBezier(p1.x,p1.y,p2.x,p2.y);
 }
 
