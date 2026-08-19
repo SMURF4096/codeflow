@@ -182,6 +182,14 @@ test('returning to Code opens the current selection without dropping old cards',
   const empty = context.ensureCodeViewOpenedPaths([], null, data, 'src');
   assert.deepEqual(J(empty.paths), ['hub.js']);
   assert.equal(empty.seed, 'hub.js');
+  const capped = Array.from({ length: context.CODE_CARD_MAX }, (_, i) => 'f' + i + '.js');
+  const replaced = context.ensureCodeViewOpenedPaths(capped, 'leaf.js', data, 'src');
+  assert.equal(replaced.opened, true);
+  assert.equal(replaced.inserted, true);
+  assert.equal(replaced.paths.length, context.CODE_CARD_MAX);
+  assert.equal(replaced.paths[replaced.paths.length - 1], 'leaf.js');
+  assert.equal(replaced.paths.indexOf('f0.js'), -1);
+  assert.equal(replaced.paths.indexOf('f1.js'), 0);
 });
 
 test('high-degree neighborhoods stay within the card cap', () => {
@@ -206,6 +214,18 @@ test('a drag does not select the card on the leftover click', () => {
   assert.deepEqual(J(context.noteCodeCardPointerEnd(false)), { select: true, ignoreNextClick: false });
   assert.deepEqual(J(context.consumeCodeCardClick(true)), { ignore: true, ignoreNextClick: false });
   assert.deepEqual(J(context.consumeCodeCardClick(false)), { ignore: false, ignoreNextClick: false });
+});
+
+test('card drag activation uses screen pixels, not zoomed graph units', () => {
+  const far = context.codeCardDragDelta(101, 100, 100, 100, 0.08, 3);
+  assert.equal(far.moved, false);
+  assert.ok(Math.abs(far.x) > 3);
+  const near = context.codeCardDragDelta(104, 100, 100, 100, 5, 3);
+  assert.equal(near.moved, true);
+  assert.ok(Math.abs(near.x) < 3);
+  const still = context.codeCardDragDelta(100, 100, 100, 100, 1, 3);
+  assert.equal(still.moved, false);
+  assert.equal(still.x, 0);
 });
 
 test('code cards use a uniform width and grow with line count', () => {
@@ -244,6 +264,14 @@ test('opened code paths append without reshuffling the set', () => {
   assert.equal(added.opened, true);
   assert.equal(added.inserted, true);
   assert.deepEqual(J(added.paths), ['a.js', 'b.js']);
+  const evicted = context.openCodeCardPaths(capped, 'extra.js', null, true);
+  assert.equal(evicted.length, context.CODE_CARD_MAX);
+  assert.equal(evicted[0], 'f1.js');
+  assert.equal(evicted[evicted.length - 1], 'extra.js');
+  const replaced = context.resolveOpenCodeCard(capped, 'extra.js', null, true);
+  assert.equal(replaced.opened, true);
+  assert.equal(replaced.inserted, true);
+  assert.deepEqual(J(replaced.paths), evicted);
 });
 
 test('opened code files ignore the current selection', () => {
@@ -419,6 +447,14 @@ test('hydrating file contents does not change the graph structure key', () => {
   assert.notEqual(
     context.codeViewSceneKey(before, null, 'code'),
     context.codeViewSceneKey(swapped, null, 'code')
+  );
+  assert.notEqual(
+    context.codeViewSceneKey(before, null, 'code', { sourceType: 'github', sourceKey: 'owner/alpha' }),
+    context.codeViewSceneKey(before, null, 'code', { sourceType: 'github', sourceKey: 'owner/beta' })
+  );
+  assert.notEqual(
+    context.analysisHydrationId({ sourceType: 'github', sourceKey: 'owner/alpha' }, before, null),
+    context.analysisHydrationId({ sourceType: 'github', sourceKey: 'owner/beta' }, before, null)
   );
   const moved = {
     files: [{ path: 'a.js', folder: 'src', layer: 'utils', churn: 0, functions: [] }, { path: 'b.js' }],
@@ -725,7 +761,11 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /codeViewWheelPanDelta/);
   assert.match(htmlSource, /codeSourceInFlightRef/);
   assert.match(htmlSource, /analysisHydrationId/);
+  assert.match(htmlSource, /currentHydrationId/);
+  assert.match(htmlSource, /openedSceneRef\.current=currentHydrationId/);
   assert.match(htmlSource, /hydratedSourceIsCurrent/);
+  assert.match(htmlSource, /codeCardDragDelta/);
+  assert.match(htmlSource, /openCodeFileRef\.current\(seed,true\)/);
   assert.match(htmlSource, /codeCardPillViewTop/);
   assert.match(htmlSource, /readCodeCardBodyScroll/);
   assert.match(htmlSource, /readCodeCardBodyScroll\(codeCardsLayerRef\.current/);

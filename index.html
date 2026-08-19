@@ -5869,6 +5869,22 @@ function consumeCodeCardClick(ignoreNextClick){
     return {ignore:!!ignoreNextClick,ignoreNextClick:false};
 }
 
+function codeCardDragDelta(clientX,clientY,startX,startY,scale,threshold){
+    var screenX=(Number(clientX)||0)-(Number(startX)||0);
+    var screenY=(Number(clientY)||0)-(Number(startY)||0);
+    var k=Number(scale);
+    if(!isFinite(k)||k<=0)k=1;
+    var limit=threshold==null?3:Number(threshold);
+    if(!isFinite(limit))limit=3;
+    return{
+        x:screenX/k,
+        y:screenY/k,
+        screenX:screenX,
+        screenY:screenY,
+        moved:Math.abs(screenX)+Math.abs(screenY)>limit
+    };
+}
+
 var CODE_CARD_MIN_WIDTH=320;
 var CODE_CARD_MAX_WIDTH=720;
 var CODE_CARD_MIN_HEIGHT=160;
@@ -5970,19 +5986,22 @@ function layoutCodeCardsByFolder(files,sizesByPath,options){
     return placed;
 }
 
-function openCodeCardPaths(prev,path,limit){
+function openCodeCardPaths(prev,path,limit,replace){
     var list=(prev||[]).slice();
     if(!path)return list;
     if(list.indexOf(path)>=0)return list;
     var max=limit==null?CODE_CARD_MAX:Number(limit);
-    if(isFinite(max)&&list.length>=max)return list;
+    if(isFinite(max)&&list.length>=max){
+        if(!replace)return list;
+        list=list.slice(Math.max(0,list.length-max+1));
+    }
     list.push(path);
     return list;
 }
 
-function resolveOpenCodeCard(prev,path,limit){
+function resolveOpenCodeCard(prev,path,limit,replace){
     var before=prev||[];
-    var next=openCodeCardPaths(before,path,limit);
+    var next=openCodeCardPaths(before,path,limit,replace);
     var already=!!(path&&before.indexOf(path)>=0);
     var inserted=!!(path&&!already&&next.indexOf(path)>=0);
     return{paths:next,already:already,inserted:inserted,opened:already||inserted};
@@ -5991,7 +6010,7 @@ function resolveOpenCodeCard(prev,path,limit){
 function ensureCodeViewOpenedPaths(openedPaths,selectedPath,data,folderFilter){
     var seed=codeViewSeedPath(selectedPath,data,folderFilter);
     if(!seed)return{paths:openedPaths||[],seed:null,opened:false,inserted:false};
-    var resolved=resolveOpenCodeCard(openedPaths,seed);
+    var resolved=resolveOpenCodeCard(openedPaths,seed,null,true);
     return{paths:resolved.paths,seed:seed,opened:resolved.opened,inserted:resolved.inserted};
 }
 
@@ -6258,8 +6277,8 @@ function graphStructureKey(data,folderFilter){
     return String(folderFilter||'')+'\n'+files+'\n'+connections;
 }
 
-function codeViewSceneKey(data,folderFilter,vizType){
-    return graphStructureKey(data,folderFilter)+'|'+String(vizType||'');
+function codeViewSceneKey(data,folderFilter,vizType,source){
+    return analysisHydrationId(source,data,folderFilter)+'|'+String(vizType||'');
 }
 
 function analysisHydrationId(source,data,folderFilter){
@@ -7384,7 +7403,8 @@ function App(){
         if(parsed)return{sourceType:'github',sourceKey:githubCacheSourceKey(parsed.owner,parsed.repo,activeExcludePatterns),title:parsed.owner+'/'+parsed.repo,repoUrl:parsed.owner+'/'+parsed.repo,localSourceKind:null};
         return null;
     }
-    analysisHydrationIdRef.current=analysisHydrationId(currentAnalysisSource(),data,folderFilter);
+    var currentHydrationId=analysisHydrationId(currentAnalysisSource(),data,folderFilter);
+    analysisHydrationIdRef.current=currentHydrationId;
 
     function refreshRecentList(){
         listRecentAnalyses().then(function(rows){
@@ -8423,10 +8443,10 @@ function App(){
         }
     },[data,repoInfo,localSourceKind,isMobile,graphConfig.vizType]);
     selectFileRef.current=selectFile;
-    function openCodeFile(path){
-        var resolved=resolveOpenCodeCard(openedCodePaths,path);
+    function openCodeFile(path,replace){
+        var resolved=resolveOpenCodeCard(openedCodePaths,path,null,replace);
         if(!resolved.opened)return;
-        setOpenedCodePaths(function(prev){return openCodeCardPaths(prev,path);});
+        setOpenedCodePaths(function(prev){return openCodeCardPaths(prev,path,null,replace);});
         if(resolved.inserted)pendingFlyToRef.current=path;
         selectFile(path);
     }
@@ -8634,14 +8654,13 @@ function App(){
         return files;
     },[data,openedCodePaths,folderFilter,graphConfig.vizType,selected&&selected.path]);
     useEffect(function(){
-        var scene=graphStructureKey(data,folderFilter);
-        if(scene===openedSceneRef.current)return;
-        openedSceneRef.current=scene;
+        if(currentHydrationId===openedSceneRef.current)return;
+        openedSceneRef.current=currentHydrationId;
         codeCardPlacementRef.current=Object.create(null);
         codeSourceInFlightRef.current=Object.create(null);
         setOpenedCodePaths([]);
         pendingFlyToRef.current=null;
-    },[data,folderFilter]);
+    },[currentHydrationId]);
     useEffect(function(){
         var inCode=graphConfig.vizType==='code'&&!!data;
         if(!inCode){
@@ -8655,7 +8674,7 @@ function App(){
         codeViewSessionRef.current=true;
         var seed=codeViewSeedPath(selected&&selected.path,data,folderFilter);
         if(!seed)return;
-        if(openCodeFileRef.current)openCodeFileRef.current(seed);
+        if(openCodeFileRef.current)openCodeFileRef.current(seed,true);
     },[graphConfig.vizType,data,folderFilter,openedCodePaths.length,selected&&selected.path]);
     useEffect(function(){
         var el=codeCanvasRef.current;
@@ -8873,7 +8892,7 @@ function App(){
         var centers={};
         folders.forEach(function(f,i){centers[f]={x:(i%cols+1)*cw,y:(Math.floor(i/cols)+1)*ch};});
         var keepReadable=graphConfig.vizType==='code';
-        var sceneKey=codeViewSceneKey(data,folderFilter,graphConfig.vizType);
+        var sceneKey=codeViewSceneKey(data,folderFilter,graphConfig.vizType,currentAnalysisSource());
         if(sceneKey!==codeViewSceneRef.current){
             codeViewSceneRef.current=sceneKey;
             codeViewCameraReadyRef.current=false;
@@ -10642,13 +10661,13 @@ function App(){
             };
         }
         function onMove(ev){
-            var dx=(ev.clientX-startX)/k,dy=(ev.clientY-startY)/k;
-            if(Math.abs(dx)+Math.abs(dy)>3){
+            var delta=codeCardDragDelta(ev.clientX,ev.clientY,startX,startY,k,3);
+            if(delta.moved){
                 moved=true;
                 codeCardUserPinnedRef.current.add(file.path);
             }
-            node.x=node.fx=originX+dx;
-            node.y=node.fy=originY+dy;
+            node.x=node.fx=originX+delta.x;
+            node.y=node.fy=originY+delta.y;
             writePlacement();
             syncCodeCards();
             redrawGraphLinksAndNodes();
