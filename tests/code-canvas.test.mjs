@@ -930,6 +930,21 @@ test('symbol list wheel stays native instead of panning the canvas', () => {
   assert.equal(context.isCodeCanvasNativeScrollTarget(null), false);
 });
 
+test('modifier-wheel over a clipped card still zooms the canvas', () => {
+  const body = { closest(sel) { return sel === '.code-card.clipped .code-card-body' ? this : null; } };
+  const list = { closest(sel) { return sel === '.code-sym-list' ? this : null; } };
+  const canvas = { closest() { return null; } };
+  assert.equal(context.codeViewWheelUsesNativeScroll({}, body), true);
+  assert.equal(context.codeViewWheelUsesNativeScroll({ ctrlKey: true }, body), false);
+  assert.equal(context.codeViewWheelUsesNativeScroll({ metaKey: true }, body), false);
+  assert.equal(context.codeViewWheelUsesNativeScroll({}, list), true);
+  assert.equal(context.codeViewWheelUsesNativeScroll({ ctrlKey: true }, list), false);
+  assert.equal(context.codeViewWheelUsesNativeScroll({ ctrlKey: true }, canvas), false);
+  assert.equal(context.codeViewWheelUsesNativeScroll({}, canvas), false);
+  assert.equal(context.codeViewWheelAction({ ctrlKey: true }), 'zoom');
+  assert.equal(context.codeViewWheelAction({ metaKey: true }), 'zoom');
+});
+
 test('folder frames count as canvas background for deselect', () => {
   const svg = { id: 'svg' };
   const hull = {
@@ -987,7 +1002,8 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /analysisHydrationIdFromParts/);
   assert.match(htmlSource, /loadedAnalysisSourceIdentity/);
   assert.match(htmlSource, /isCodeCanvasNativeScrollTarget/);
-  assert.match(htmlSource, /isCodeCanvasNativeScrollTarget\(e\.target\)/);
+  assert.match(htmlSource, /codeViewWheelUsesNativeScroll/);
+  assert.match(htmlSource, /codeViewWheelUsesNativeScroll\(e,e\.target\)/);
   assert.doesNotMatch(htmlSource, /analysisHydrationId\(currentAnalysisSource\(\),data\)/);
   assert.match(htmlSource, /retryCodeSource/);
   assert.match(htmlSource, /sourceState==='failed'/);

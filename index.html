@@ -6589,6 +6589,11 @@ function isCodeCanvasNativeScrollTarget(target){
     return !!(target.closest('.code-card.clipped .code-card-body')||target.closest('.code-sym-list'));
 }
 
+function codeViewWheelUsesNativeScroll(event,target){
+    if(codeViewWheelAction(event)==='zoom')return false;
+    return isCodeCanvasNativeScrollTarget(target);
+}
+
 function collectCrossFileSymbols(files,connections){
     var byName=Object.create(null);
     (files||[]).forEach(function(file){
@@ -8858,7 +8863,7 @@ function App(){
         if(!el||graphConfig.vizType!=='code')return;
         function onWheel(e){
             if(!zoomRef.current||!svgRef.current)return;
-            if(isCodeCanvasNativeScrollTarget(e.target))return;
+            if(codeViewWheelUsesNativeScroll(e,e.target))return;
             var action=codeViewWheelAction(e);
             e.preventDefault();
             var svg=d3.select(svgRef.current);
