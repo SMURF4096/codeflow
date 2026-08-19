@@ -500,6 +500,13 @@ test('hydrating file contents does not change the graph structure key', () => {
     context.analysisHydrationId({ sourceType: 'github', sourceKey: 'owner/alpha' }, before, null),
     context.analysisHydrationId({ sourceType: 'github', sourceKey: 'owner/beta' }, before, null)
   );
+  const source = { sourceType: 'github', sourceKey: 'owner/repo' };
+  assert.equal(context.analysisHydrationId(source, before, null), context.analysisHydrationId(source, before, 'src'));
+  assert.equal(context.analysisGraphKey(before), context.analysisGraphKey(after));
+  assert.notEqual(
+    context.codeViewSceneKey(before, null, 'code', source),
+    context.codeViewSceneKey(before, 'src', 'code', source)
+  );
   const moved = {
     files: [{ path: 'a.js', folder: 'src', layer: 'utils', churn: 0, functions: [] }, { path: 'b.js' }],
     connections: [{ source: 'a.js', target: 'b.js' }]
@@ -723,6 +730,24 @@ test('obsolete hydration results do not replace a new analysis file', () => {
   assert.equal(accepted.files[0].content, 'from-beta');
 });
 
+test('obsolete source failures do not mark a new analysis path as failed', () => {
+  const repoA = { sourceType: 'github', sourceKey: 'owner/alpha' };
+  const repoB = { sourceType: 'github', sourceKey: 'owner/beta' };
+  const data = { files: [{ path: 'src/index.js', name: 'index.js' }], connections: [] };
+  const idA = context.analysisHydrationId(repoA, data);
+  const idB = context.analysisHydrationId(repoB, data);
+  assert.equal(context.hydrationRequestIsCurrent(idA, idB), false);
+  assert.equal(context.hydrationRequestIsCurrent(idB, idB), true);
+  const stale = context.recordCodeSourceFailureIfCurrent(null, 'src/index.js', idA, idB);
+  assert.equal(Object.keys(stale).length, 0);
+  const current = context.recordCodeSourceFailureIfCurrent(null, 'src/index.js', idB, idB);
+  assert.equal(current['src/index.js'], true);
+  const kept = context.clearCodeSourceFailureIfCurrent(current, 'src/index.js', idA, idB);
+  assert.equal(kept['src/index.js'], true);
+  const cleared = context.clearCodeSourceFailureIfCurrent(current, 'src/index.js', idB, idB);
+  assert.equal(Object.prototype.hasOwnProperty.call(cleared, 'src/index.js'), false);
+});
+
 test('symbol pills track scroll and hide when clipped away', () => {
   const visible = context.codeCardPillViewTop(80, 0, 400, 42);
   assert.equal(visible, 80);
@@ -804,6 +829,11 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /reflowUnpinnedCodeCards/);
   assert.match(htmlSource, /nextCodeSourceReads/);
   assert.match(htmlSource, /recordCodeSourceFailure/);
+  assert.match(htmlSource, /recordCodeSourceFailureIfCurrent/);
+  assert.match(htmlSource, /hydrationRequestIsCurrent/);
+  assert.match(htmlSource, /analysisGraphKey/);
+  assert.match(htmlSource, /analysisHydrationId\(currentAnalysisSource\(\),data\)/);
+  assert.doesNotMatch(htmlSource, /analysisHydrationId\(currentAnalysisSource\(\),data,folderFilter\)/);
   assert.match(htmlSource, /retryCodeSource/);
   assert.match(htmlSource, /sourceState==='failed'/);
   assert.match(htmlSource, /hiddenOpenedCodePaths/);

@@ -6314,26 +6314,36 @@ function fileGraphIdentity(file){
     return [file.path||'',file.name||'',file.folder||'',file.layer||'',file.churn||0,fnCount].join('\t');
 }
 
-function graphStructureKey(data,folderFilter){
+function analysisGraphKey(data){
     if(!data||!data.files)return '';
     var files=data.files.map(fileGraphIdentity).join('\n');
     var connections=(data.connections||[]).map(connectionIdentity).sort().join('\n');
-    return String(folderFilter||'')+'\n'+files+'\n'+connections;
+    return files+'\n'+connections;
+}
+
+function graphStructureKey(data,folderFilter){
+    var graph=analysisGraphKey(data);
+    if(!graph)return '';
+    return String(folderFilter||'')+'\n'+graph;
 }
 
 function codeViewSceneKey(data,folderFilter,vizType,source){
-    return analysisHydrationId(source,data,folderFilter)+'|'+String(vizType||'');
+    return analysisHydrationId(source,data)+'|'+String(folderFilter||'')+'|'+String(vizType||'');
 }
 
-function analysisHydrationId(source,data,folderFilter){
+function analysisHydrationId(source,data){
     source=source||{};
-    return [source.sourceType||'',source.sourceKey||'',graphStructureKey(data,folderFilter)].join('\0');
+    return [source.sourceType||'',source.sourceKey||'',analysisGraphKey(data)].join('\0');
+}
+
+function hydrationRequestIsCurrent(hydrationId,currentId){
+    if(hydrationId==null||currentId==null)return true;
+    return hydrationId===currentId;
 }
 
 function hydratedSourceIsCurrent(update,currentId){
     if(!update||!update.path||typeof update.content!=='string')return false;
-    if(update.hydrationId==null||currentId==null)return true;
-    return update.hydrationId===currentId;
+    return hydrationRequestIsCurrent(update.hydrationId,currentId);
 }
 
 function preserveGraphNodeState(nodes,prevById){
@@ -6613,6 +6623,16 @@ function clearCodeSourceFailure(prev,path){
     var next=Object.assign(Object.create(null),prev||{});
     if(path)delete next[path];
     return next;
+}
+
+function recordCodeSourceFailureIfCurrent(prev,path,hydrationId,currentId){
+    if(!hydrationRequestIsCurrent(hydrationId,currentId))return prev||Object.create(null);
+    return recordCodeSourceFailure(prev,path);
+}
+
+function clearCodeSourceFailureIfCurrent(prev,path,hydrationId,currentId){
+    if(!hydrationRequestIsCurrent(hydrationId,currentId))return prev||Object.create(null);
+    return clearCodeSourceFailure(prev,path);
 }
 
 function fileSourceDisplayState(file,canFetch,failed){
@@ -7462,7 +7482,7 @@ function App(){
         if(parsed)return{sourceType:'github',sourceKey:githubCacheSourceKey(parsed.owner,parsed.repo,activeExcludePatterns),title:parsed.owner+'/'+parsed.repo,repoUrl:parsed.owner+'/'+parsed.repo,localSourceKind:null};
         return null;
     }
-    var currentHydrationId=analysisHydrationId(currentAnalysisSource(),data,folderFilter);
+    var currentHydrationId=analysisHydrationId(currentAnalysisSource(),data);
     analysisHydrationIdRef.current=currentHydrationId;
 
     function refreshRecentList(){
@@ -8926,13 +8946,13 @@ function App(){
             readLiveFileSource(path).then(function(content){
                 if(typeof content==='string'){
                     rememberHydratedSources([{path:path,content:content,hydrationId:hydrationId}]);
-                    setCodeSourceFailed(function(prev){return clearCodeSourceFailure(prev,path);});
+                    setCodeSourceFailed(function(prev){return clearCodeSourceFailureIfCurrent(prev,path,hydrationId,analysisHydrationIdRef.current);});
                     return;
                 }
-                setCodeSourceFailed(function(prev){return recordCodeSourceFailure(prev,path);});
+                setCodeSourceFailed(function(prev){return recordCodeSourceFailureIfCurrent(prev,path,hydrationId,analysisHydrationIdRef.current);});
             }).then(function(){delete inflight[path];},function(){
                 delete inflight[path];
-                setCodeSourceFailed(function(prev){return recordCodeSourceFailure(prev,path);});
+                setCodeSourceFailed(function(prev){return recordCodeSourceFailureIfCurrent(prev,path,hydrationId,analysisHydrationIdRef.current);});
             });
         });
     },[codeViewFiles,localSourceKind,cliStatus,repoInfo,localDirHandle,codeSourceFailed]);
