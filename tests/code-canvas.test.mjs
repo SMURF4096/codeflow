@@ -154,6 +154,36 @@ test('Code view seeds cards without waiting for a click', () => {
   assert.equal(context.codeViewSeedPath('leaf.js', { files: [], connections: [] }, null), null);
 });
 
+test('returning to Code opens the current selection without dropping old cards', () => {
+  const data = {
+    files: [
+      { path: 'leaf.js', folder: 'src', name: 'leaf.js', functions: [] },
+      { path: 'hub.js', folder: 'src', name: 'hub.js', functions: [] },
+      { path: 'other.js', folder: 'src', name: 'other.js', functions: [] }
+    ],
+    connections: [
+      { source: 'hub.js', target: 'leaf.js', fn: 'h' },
+      { source: 'hub.js', target: 'other.js', fn: 'h' }
+    ]
+  };
+  assert.equal(context.shouldSeedOpenedCodeCards(false, false, ['hub.js']), false);
+  assert.equal(context.shouldSeedOpenedCodeCards(true, false, ['hub.js']), true);
+  assert.equal(context.shouldSeedOpenedCodeCards(true, true, ['hub.js']), false);
+  assert.equal(context.shouldSeedOpenedCodeCards(true, true, []), true);
+  const reenter = context.ensureCodeViewOpenedPaths(['hub.js'], 'leaf.js', data, 'src');
+  assert.deepEqual(J(reenter.paths), ['hub.js', 'leaf.js']);
+  assert.equal(reenter.seed, 'leaf.js');
+  assert.equal(reenter.inserted, true);
+  assert.equal(reenter.opened, true);
+  const already = context.ensureCodeViewOpenedPaths(['hub.js', 'leaf.js'], 'leaf.js', data, 'src');
+  assert.deepEqual(J(already.paths), ['hub.js', 'leaf.js']);
+  assert.equal(already.inserted, false);
+  assert.equal(already.opened, true);
+  const empty = context.ensureCodeViewOpenedPaths([], null, data, 'src');
+  assert.deepEqual(J(empty.paths), ['hub.js']);
+  assert.equal(empty.seed, 'hub.js');
+});
+
 test('high-degree neighborhoods stay within the card cap', () => {
   const files = Array.from({ length: 30 }, (_, i) => ({
     path: i === 0 ? 'hub.js' : 'n' + i + '.js',
@@ -295,8 +325,9 @@ test('line-level code edges use bezier anchors, not card centers', () => {
   };
   assert.equal(context.codeCardSymbolLine(file, 'shared'), 1);
   const d = context.codeEdgeBezier(0, 10, 200, 40);
-  assert.match(d, /^M0,10C/);
-  assert.match(d, / 200,40$/);
+  assert.equal(d, 'M0,10C90,10 110,40 200,40');
+  const reverse = context.codeEdgeBezier(200, 10, 0, 40);
+  assert.equal(reverse, 'M200,10C110,10 90,40 0,40');
   const src = { id: 'src/a.js', x: 220, y: 200 };
   const tgt = { id: 'src/b.js', x: 800, y: 240 };
   const sizes = {
@@ -711,6 +742,10 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /defaultCodeViewSeed/);
   assert.match(htmlSource, /codeViewSeedPath/);
   assert.match(htmlSource, /codeViewSeedPath\(selected&&selected\.path/);
+  assert.match(htmlSource, /shouldSeedOpenedCodeCards/);
+  assert.match(htmlSource, /ensureCodeViewOpenedPaths/);
+  assert.match(htmlSource, /codeViewSessionRef/);
+  assert.match(htmlSource, /x2<x1/);
   assert.match(htmlSource, /shouldFitCodeCamera/);
   assert.match(htmlSource, /codeViewCameraReadyRef/);
   assert.match(htmlSource, /graphRebuildKey/);

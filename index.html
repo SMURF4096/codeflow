@@ -5828,6 +5828,12 @@ function codeViewSeedPath(selectedPath,data,folderFilter){
     return defaultCodeViewSeed(data,folderFilter);
 }
 
+function shouldSeedOpenedCodeCards(inCode,sessionActive,openedPaths){
+    if(!inCode)return false;
+    if(!sessionActive)return true;
+    return !(openedPaths&&openedPaths.length);
+}
+
 function collectVisibleCodeFiles(selectedPath,data,folderFilter,limit){
     if(!data||!data.files)return[];
     var filtered=folderFilter?data.files.filter(function(f){return f.folder===folderFilter||f.folder.startsWith(folderFilter+'/');}):data.files;
@@ -5982,6 +5988,13 @@ function resolveOpenCodeCard(prev,path,limit){
     return{paths:next,already:already,inserted:inserted,opened:already||inserted};
 }
 
+function ensureCodeViewOpenedPaths(openedPaths,selectedPath,data,folderFilter){
+    var seed=codeViewSeedPath(selectedPath,data,folderFilter);
+    if(!seed)return{paths:openedPaths||[],seed:null,opened:false,inserted:false};
+    var resolved=resolveOpenCodeCard(openedPaths,seed);
+    return{paths:resolved.paths,seed:seed,opened:resolved.opened,inserted:resolved.inserted};
+}
+
 function filesForOpenedCodePaths(paths,data,folderFilter){
     if(!data||!data.files)return[];
     var filtered=folderFilter?data.files.filter(function(f){return f.folder===folderFilter||f.folder.startsWith(folderFilter+'/');}):data.files;
@@ -6118,7 +6131,8 @@ function codeCardLineY(size,line){
 }
 
 function codeEdgeBezier(x1,y1,x2,y2){
-    var dx=Math.max(80,Math.abs(x2-x1)*0.45);
+    var span=Math.max(80,Math.abs(x2-x1)*0.45);
+    var dx=(x2<x1?-1:1)*span;
     return 'M'+x1+','+y1+'C'+(x1+dx)+','+y1+' '+(x2-dx)+','+y2+' '+x2+','+y2;
 }
 
@@ -7156,6 +7170,7 @@ function App(){
     var codeCardIgnoreClickRef=useRef(false);
     var codeCardPlacementRef=useRef(Object.create(null));
     var openedSceneRef=useRef('');
+    var codeViewSessionRef=useRef(false);
     var pendingFlyToRef=useRef(null);
     var openCodeFileRef=useRef(null);
     var codeFilesByPathRef=useRef(Object.create(null));
@@ -8628,12 +8643,19 @@ function App(){
         pendingFlyToRef.current=null;
     },[data,folderFilter]);
     useEffect(function(){
-        if(graphConfig.vizType!=='code'||!data)return;
-        if(openedCodePaths.length)return;
+        var inCode=graphConfig.vizType==='code'&&!!data;
+        if(!inCode){
+            codeViewSessionRef.current=false;
+            return;
+        }
+        if(!shouldSeedOpenedCodeCards(true,codeViewSessionRef.current,openedCodePaths)){
+            codeViewSessionRef.current=true;
+            return;
+        }
+        codeViewSessionRef.current=true;
         var seed=codeViewSeedPath(selected&&selected.path,data,folderFilter);
         if(!seed)return;
-        setOpenedCodePaths([seed]);
-        if(selectFileRef.current)selectFileRef.current(seed);
+        if(openCodeFileRef.current)openCodeFileRef.current(seed);
     },[graphConfig.vizType,data,folderFilter,openedCodePaths.length,selected&&selected.path]);
     useEffect(function(){
         var el=codeCanvasRef.current;
