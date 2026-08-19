@@ -341,6 +341,43 @@ test('source reads skip paths that are already in flight', () => {
   assert.deepEqual(J(context.nextCodeSourceReads(['a.js'], { 'a.js': true })), []);
 });
 
+test('failed source reads leave a retryable state instead of loading forever', () => {
+  const file = { path: 'src/a.js', name: 'a.js' };
+  assert.equal(context.fileSourceDisplayState(file, true), 'loading');
+  const failed = context.recordCodeSourceFailure(null, 'src/a.js');
+  assert.equal(context.fileSourceDisplayState(file, true, failed), 'failed');
+  assert.equal(context.fileSourceDisplayState(file, false, failed), 'unavailable');
+  assert.deepEqual(J(context.nextCodeSourceReads(['src/a.js', 'src/b.js'], {}, failed)), ['src/b.js']);
+  const cleared = context.clearCodeSourceFailure(failed, 'src/a.js');
+  assert.equal(context.fileSourceDisplayState(file, true, cleared), 'loading');
+  assert.deepEqual(J(context.nextCodeSourceReads(['src/a.js'], {}, cleared)), ['src/a.js']);
+});
+
+test('filtered-out cards do not consume the open-card cap', () => {
+  const files = Array.from({ length: context.CODE_CARD_MAX }, (_, i) => ({
+    path: 'src/f' + i + '.js',
+    folder: 'src',
+    name: 'f' + i + '.js'
+  }));
+  files.push({ path: 'lib/new.js', folder: 'lib', name: 'new.js' });
+  files.push({ path: 'src/extra.js', folder: 'src', name: 'extra.js' });
+  const data = { files };
+  const capped = files.slice(0, context.CODE_CARD_MAX).map((file) => file.path);
+  const hidden = context.hiddenOpenedCodePaths(capped, data, 'lib');
+  assert.equal(Object.keys(hidden).length, context.CODE_CARD_MAX);
+  const opened = context.resolveOpenCodeCard(capped, 'lib/new.js', null, false, hidden);
+  assert.equal(opened.opened, true);
+  assert.equal(opened.inserted, true);
+  assert.equal(opened.paths.length, context.CODE_CARD_MAX);
+  assert.equal(opened.paths[opened.paths.length - 1], 'lib/new.js');
+  assert.equal(opened.paths.indexOf('src/f0.js'), -1);
+  const visibleHidden = context.hiddenOpenedCodePaths(capped, data, 'src');
+  assert.equal(Object.keys(visibleHidden).length, 0);
+  const refused = context.resolveOpenCodeCard(capped, 'src/extra.js', null, false, visibleHidden);
+  assert.equal(refused.opened, false);
+  assert.deepEqual(J(refused.paths), capped);
+});
+
 test('wheel pan deltas stay screen-pixel based across zoom', () => {
   assert.deepEqual(J(context.codeViewWheelPanDelta(40, 80, 1)), { x: -40, y: -80 });
   assert.deepEqual(J(context.codeViewWheelPanDelta(40, 80, 2)), { x: -20, y: -40 });
@@ -411,6 +448,10 @@ test('opened code cards auto-align by directory', () => {
   ], sizes, 10);
   assert.ok(bounds.width >= 320);
   assert.ok(bounds.height >= 200);
+  const before = context.codeFolderCardBounds([{ id: 'src/a.js', x: 220, y: 100 }], sizes, 10);
+  const after = context.codeFolderCardBounds([{ id: 'src/a.js', x: 800, y: 400 }], sizes, 10);
+  assert.ok(after.x > before.x);
+  assert.ok(after.y > before.y);
 });
 
 test('Code camera fits only when it has not been armed yet', () => {
@@ -654,6 +695,7 @@ test('hydrated sources stay in memory and are not treated as cached source', () 
   assert.equal(context.fileSourceDisplayState(merged.files[0], true), 'ready');
   assert.equal(context.fileSourceDisplayState({ path: 'big.js', analysisSkipped: 'oversized' }, false), 'skipped');
   assert.equal(context.fileSourceDisplayState({ path: 'src/a.js' }, false), 'unavailable');
+  assert.equal(context.fileSourceDisplayState(cached.files[0], true, { 'src/a.js': true }), 'failed');
 });
 
 test('empty source files count as loaded after hydration', () => {
@@ -761,6 +803,12 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /appendCodeCardPlacement/);
   assert.match(htmlSource, /reflowUnpinnedCodeCards/);
   assert.match(htmlSource, /nextCodeSourceReads/);
+  assert.match(htmlSource, /recordCodeSourceFailure/);
+  assert.match(htmlSource, /retryCodeSource/);
+  assert.match(htmlSource, /sourceState==='failed'/);
+  assert.match(htmlSource, /hiddenOpenedCodePaths/);
+  assert.match(htmlSource, /evictHiddenCodeCards/);
+  assert.match(htmlSource, /updateHullsRef\.current/);
   assert.match(htmlSource, /codeViewWheelPanDelta/);
   assert.match(htmlSource, /codeSourceInFlightRef/);
   assert.match(htmlSource, /analysisHydrationId/);

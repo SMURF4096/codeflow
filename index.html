@@ -492,6 +492,9 @@ body{font-family:'JetBrains Mono',monospace;background:var(--bg0);color:var(--t0
 .code-card-name{font-size:11px;font-weight:600;color:var(--t0);transform-origin:left center;display:inline-block;white-space:nowrap}
 .code-card-path{font-size:9px;color:var(--t3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:240px}
 .code-card-body{flex:1;overflow:hidden;min-height:0;user-select:text}
+.code-card-source-status{padding:12px;display:flex;flex-direction:column;align-items:flex-start;gap:10px}
+.code-card-retry{background:transparent;border:1px solid var(--border);color:var(--t2);padding:4px 8px;border-radius:4px;font-size:10px;cursor:pointer}
+.code-card-retry:hover{border-color:var(--acc);color:var(--acc)}
 .code-card.clipped .code-card-body{overflow:auto;touch-action:pan-x pan-y}
 .code-card-body .file-preview-code{padding:8px 0;font-size:11px}
 .code-card.code-far .code-card-body{overflow:hidden}
@@ -5990,22 +5993,59 @@ function layoutCodeCardsByFolder(files,sizesByPath,options){
     return placed;
 }
 
-function openCodeCardPaths(prev,path,limit,replace){
+function pathIsFlagged(map,path){
+    if(!path||!map)return false;
+    if(typeof map.has==='function')return map.has(path);
+    return !!map[path];
+}
+
+function hiddenOpenedCodePaths(paths,data,folderFilter){
+    var hidden=Object.create(null);
+    if(!folderFilter)return hidden;
+    var visible=Object.create(null);
+    filesForOpenedCodePaths(paths,data,folderFilter).forEach(function(file){
+        if(file&&file.path)visible[file.path]=true;
+    });
+    (paths||[]).forEach(function(path){
+        if(path&&!visible[path])hidden[path]=true;
+    });
+    return hidden;
+}
+
+function evictHiddenCodeCards(list,hidden,count){
+    var need=Number(count);
+    if(!isFinite(need)||need<=0)return (list||[]).slice();
+    var removed=0;
+    return (list||[]).filter(function(path){
+        if(removed>=need)return true;
+        if(pathIsFlagged(hidden,path)){
+            removed++;
+            return false;
+        }
+        return true;
+    });
+}
+
+function openCodeCardPaths(prev,path,limit,replace,hidden){
     var list=(prev||[]).slice();
     if(!path)return list;
     if(list.indexOf(path)>=0)return list;
     var max=limit==null?CODE_CARD_MAX:Number(limit);
     if(isFinite(max)&&list.length>=max){
-        if(!replace)return list;
-        list=list.slice(Math.max(0,list.length-max+1));
+        var need=list.length-max+1;
+        if(hidden)list=evictHiddenCodeCards(list,hidden,need);
+        if(list.length>=max){
+            if(!replace)return list;
+            list=list.slice(Math.max(0,list.length-max+1));
+        }
     }
     list.push(path);
     return list;
 }
 
-function resolveOpenCodeCard(prev,path,limit,replace){
+function resolveOpenCodeCard(prev,path,limit,replace,hidden){
     var before=prev||[];
-    var next=openCodeCardPaths(before,path,limit,replace);
+    var next=openCodeCardPaths(before,path,limit,replace,hidden);
     var already=!!(path&&before.indexOf(path)>=0);
     var inserted=!!(path&&!already&&next.indexOf(path)>=0);
     return{paths:next,already:already,inserted:inserted,opened:already||inserted};
@@ -6014,7 +6054,7 @@ function resolveOpenCodeCard(prev,path,limit,replace){
 function ensureCodeViewOpenedPaths(openedPaths,selectedPath,data,folderFilter){
     var seed=codeViewSeedPath(selectedPath,data,folderFilter);
     if(!seed)return{paths:openedPaths||[],seed:null,opened:false,inserted:false};
-    var resolved=resolveOpenCodeCard(openedPaths,seed,null,true);
+    var resolved=resolveOpenCodeCard(openedPaths,seed,null,true,hiddenOpenedCodePaths(openedPaths,data,folderFilter));
     return{paths:resolved.paths,seed:seed,opened:resolved.opened,inserted:resolved.inserted};
 }
 
@@ -6178,10 +6218,10 @@ function codeViewWheelPanDelta(deltaX,deltaY,scale){
     return{x:-(Number(deltaX)||0)/k,y:-(Number(deltaY)||0)/k};
 }
 
-function nextCodeSourceReads(neededPaths,inFlight){
+function nextCodeSourceReads(neededPaths,inFlight,failed){
     inFlight=inFlight||Object.create(null);
     return(neededPaths||[]).filter(function(path){
-        return !!path&&!inFlight[path];
+        return !!path&&!inFlight[path]&&!pathIsFlagged(failed,path);
     });
 }
 
@@ -6563,10 +6603,23 @@ function analysisFileNeedsSource(file){
     return !!(file&&!file.analysisSkipped&&!fileHasLoadedSource(file));
 }
 
-function fileSourceDisplayState(file,canFetch){
+function recordCodeSourceFailure(prev,path){
+    var next=Object.assign(Object.create(null),prev||{});
+    if(path)next[path]=true;
+    return next;
+}
+
+function clearCodeSourceFailure(prev,path){
+    var next=Object.assign(Object.create(null),prev||{});
+    if(path)delete next[path];
+    return next;
+}
+
+function fileSourceDisplayState(file,canFetch,failed){
     if(!file)return 'empty';
     if(file.analysisSkipped)return 'skipped';
     if(fileHasLoadedSource(file))return 'ready';
+    if(canFetch&&pathIsFlagged(failed,file.path))return 'failed';
     return canFetch?'loading':'unavailable';
 }
 
@@ -7199,8 +7252,10 @@ function App(){
     var codeFilesByPathRef=useRef(Object.create(null));
     var codeCanvasRef=useRef(null);
     var codeSourceInFlightRef=useRef(Object.create(null));
+    var updateHullsRef=useRef(null);
     var analysisHydrationIdRef=useRef('');
     var _openedCards=useState([]),openedCodePaths=_openedCards[0],setOpenedCodePaths=_openedCards[1];
+    var _sourceFailed=useState(Object.create(null)),codeSourceFailed=_sourceFailed[0],setCodeSourceFailed=_sourceFailed[1];
     var _pillScroll=useState(0),codePillScroll=_pillScroll[0],setCodePillScroll=_pillScroll[1];
     var pendingRecentDeleteTimerRef=useRef(null);
     var zipInputRef=useRef(null);
@@ -8448,11 +8503,17 @@ function App(){
     },[data,repoInfo,localSourceKind,isMobile,graphConfig.vizType]);
     selectFileRef.current=selectFile;
     function openCodeFile(path,replace){
-        var resolved=resolveOpenCodeCard(openedCodePaths,path,null,replace);
+        var hidden=hiddenOpenedCodePaths(openedCodePaths,data,folderFilter);
+        var resolved=resolveOpenCodeCard(openedCodePaths,path,null,replace,hidden);
         if(!resolved.opened)return;
-        setOpenedCodePaths(function(prev){return openCodeCardPaths(prev,path,null,replace);});
+        setOpenedCodePaths(function(prev){return openCodeCardPaths(prev,path,null,replace,hiddenOpenedCodePaths(prev,data,folderFilter));});
         if(resolved.inserted)pendingFlyToRef.current=path;
         selectFile(path);
+    }
+    function retryCodeSource(path){
+        if(!path)return;
+        delete codeSourceInFlightRef.current[path];
+        setCodeSourceFailed(function(prev){return clearCodeSourceFailure(prev,path);});
     }
     openCodeFileRef.current=openCodeFile;
     function goToFile(path){
@@ -8667,6 +8728,7 @@ function App(){
         openedSceneRef.current=currentHydrationId;
         codeCardPlacementRef.current=Object.create(null);
         codeSourceInFlightRef.current=Object.create(null);
+        setCodeSourceFailed(Object.create(null));
         setOpenedCodePaths([]);
         pendingFlyToRef.current=null;
     },[currentHydrationId]);
@@ -8859,13 +8921,21 @@ function App(){
         if(!missing.length||!canReadLiveFileSource())return;
         var inflight=codeSourceInFlightRef.current;
         var hydrationId=analysisHydrationIdRef.current;
-        nextCodeSourceReads(missing.map(function(file){return file.path;}),inflight).forEach(function(path){
+        nextCodeSourceReads(missing.map(function(file){return file.path;}),inflight,codeSourceFailed).forEach(function(path){
             inflight[path]=true;
             readLiveFileSource(path).then(function(content){
-                if(typeof content==='string')rememberHydratedSources([{path:path,content:content,hydrationId:hydrationId}]);
-            }).then(function(){delete inflight[path];},function(){delete inflight[path];});
+                if(typeof content==='string'){
+                    rememberHydratedSources([{path:path,content:content,hydrationId:hydrationId}]);
+                    setCodeSourceFailed(function(prev){return clearCodeSourceFailure(prev,path);});
+                    return;
+                }
+                setCodeSourceFailed(function(prev){return recordCodeSourceFailure(prev,path);});
+            }).then(function(){delete inflight[path];},function(){
+                delete inflight[path];
+                setCodeSourceFailed(function(prev){return recordCodeSourceFailure(prev,path);});
+            });
         });
-    },[codeViewFiles,localSourceKind,cliStatus,repoInfo,localDirHandle]);
+    },[codeViewFiles,localSourceKind,cliStatus,repoInfo,localDirHandle,codeSourceFailed]);
 
     useEffect(function(){
         if(!data||!svgRef.current)return;
@@ -9026,7 +9096,10 @@ function App(){
             if(!e.active)sim.alphaTarget(0.1).restart();
         }).on('drag',function(e,d){
             d.fx=e.x;d.fy=e.y;d.x=e.x;d.y=e.y;
-            if(keepReadable)redrawGraphLinksAndNodes();
+            if(keepReadable){
+                redrawGraphLinksAndNodes();
+                if(updateHullsRef.current)updateHullsRef.current();
+            }
         }).on('end',function(e,d){
             if(!keepReadable){
                 if(!e.active)sim.alphaTarget(0);
@@ -9035,6 +9108,7 @@ function App(){
             }
             d.fx=d.x;d.fy=d.y;
             if(codeCardPathsRef.current.has(d.id))codeCardUserPinnedRef.current.add(d.id);
+            if(updateHullsRef.current)updateHullsRef.current();
         }));
         node.on('click',function(e,d){
             e.stopPropagation();
@@ -9119,8 +9193,9 @@ function App(){
             }
             sim.alpha(0);
         }
+        updateHullsRef.current=updateHulls;
         }catch(e){console.error('Force graph error:',e);svg.selectAll('*').remove();svg.append('text').attr('x',20).attr('y',30).attr('fill','var(--t3)').text('Graph rendering error: '+e.message);}
-        return function(){if(simRef.current)simRef.current.stop();};
+        return function(){if(simRef.current)simRef.current.stop();updateHullsRef.current=null;};
     },[graphRebuildKey]);
 
     useLayoutEffect(function(){
@@ -9134,6 +9209,7 @@ function App(){
         applyOpenedCardPlacements();
         placeRemainingCodeNodes();
         syncCodeCards();
+        if(updateHullsRef.current)updateHullsRef.current();
     },[codeViewFiles,graphConfig.vizType,graphConfig.linkDist]);
 
     // 3D Force Graph Hook
@@ -10680,6 +10756,7 @@ function App(){
             writePlacement();
             syncCodeCards();
             redrawGraphLinksAndNodes();
+            if(updateHullsRef.current)updateHullsRef.current();
         }
         function onUp(){
             window.removeEventListener('pointermove',onMove);
@@ -10694,6 +10771,9 @@ function App(){
                 codeCardUserPinnedRef.current.add(file.path);
                 node.x=node.fx;node.y=node.fy;
                 writePlacement();
+                syncCodeCards();
+                redrawGraphLinksAndNodes();
+                if(updateHullsRef.current)updateHullsRef.current();
             }
             if(end.select)selectFile(file.path);
         }
@@ -10703,7 +10783,7 @@ function App(){
     }
     function renderCodeFileCard(file,isPrimary){
         if(!file)return null;
-        var sourceState=fileSourceDisplayState(file,canReadLiveFileSource());
+        var sourceState=fileSourceDisplayState(file,canReadLiveFileSource(),codeSourceFailed);
         var body;
         if(sourceState==='ready'){
             var lines=asCodeLines(highlightSyntax(file.content||'',file.name));
@@ -10714,6 +10794,14 @@ function App(){
                         React.createElement('span',{className:'file-preview-text',dangerouslySetInnerHTML:{__html:annotateHtmlWithSymbols(lineHtml||' ',codeViewSymbols,activeSymbol)}})
                     );
                 })
+            );
+        }else if(sourceState==='failed'){
+            body=React.createElement('div',{className:'code-card-source-status'},
+                React.createElement('div',{className:'empty-desc'},'Source unavailable'),
+                React.createElement('button',{className:'code-card-retry',type:'button',onClick:function(e){
+                    e.stopPropagation();
+                    retryCodeSource(file.path);
+                }},'Retry')
             );
         }else{
             var message=sourceState==='skipped'
