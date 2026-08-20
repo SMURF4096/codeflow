@@ -236,8 +236,12 @@ body{font-family:'JetBrains Mono',monospace;background:var(--bg0);color:var(--t0
 .export-options{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
 .export-option{padding:16px;background:var(--bg0);border:1px solid var(--border);border-radius:8px;cursor:pointer;text-align:center}
 .export-option:hover{border-color:var(--acc);background:var(--accbg)}
+.export-option.disabled{opacity:0.55;cursor:not-allowed}
+.export-option.disabled:hover{border-color:var(--border);background:var(--bg0)}
 .export-option-icon{margin-bottom:8px;color:var(--acc)}
+.export-option.disabled .export-option-icon{color:var(--t3)}
 .export-option-label{font-size:11px;color:var(--t1)}
+.export-option.disabled .export-option-label{color:var(--t3)}
 .pr-header{padding:12px;background:var(--bg0);border-radius:8px;margin-bottom:12px}
 .pr-title{font-size:12px;color:var(--t0);font-weight:500}
 .pr-stats{display:flex;gap:12px;margin-top:8px;font-size:11px}
@@ -5866,6 +5870,10 @@ function codeFileNavOpensCard(vizType){
     return vizType==='code';
 }
 
+function graphSvgExportEnabled(vizType){
+    return vizType!=='code';
+}
+
 function collectVisibleCodeFiles(selectedPath,data,folderFilter,limit){
     if(!data||!data.files)return[];
     var filtered=folderFilter?data.files.filter(function(f){return f.folder===folderFilter||f.folder.startsWith(folderFilter+'/');}):data.files;
@@ -10257,7 +10265,27 @@ function App(){
         root+='}';
         return root+'text{font-family:JetBrains Mono,monospace;pointer-events:none}';
     }
-    function exportSVG(){if(!svgRef.current)return;var svgClone=svgRef.current.cloneNode(true);svgClone.setAttribute('xmlns','http://www.w3.org/2000/svg');svgClone.setAttribute('width',svgRef.current.clientWidth);svgClone.setAttribute('height',svgRef.current.clientHeight);var style=document.createElementNS('http://www.w3.org/2000/svg','style');style.textContent=getEmbeddedSvgStyle();svgClone.insertBefore(style,svgClone.firstChild);var blob=new Blob([new XMLSerializer().serializeToString(svgClone)],{type:'image/svg+xml'});var url=URL.createObjectURL(blob);var a=document.createElement('a');a.href=url;a.download='codeflow-'+Date.now()+'.svg';a.click();URL.revokeObjectURL(url);}
+    function exportSVG(){
+        if(!graphSvgExportEnabled(graphConfig.vizType)){
+            showNotification('Switch to Graph view to export SVG. Code cards are HTML overlays.','error');
+            return;
+        }
+        if(!svgRef.current)return;
+        var svgClone=svgRef.current.cloneNode(true);
+        svgClone.setAttribute('xmlns','http://www.w3.org/2000/svg');
+        svgClone.setAttribute('width',svgRef.current.clientWidth);
+        svgClone.setAttribute('height',svgRef.current.clientHeight);
+        var style=document.createElementNS('http://www.w3.org/2000/svg','style');
+        style.textContent=getEmbeddedSvgStyle();
+        svgClone.insertBefore(style,svgClone.firstChild);
+        var blob=new Blob([new XMLSerializer().serializeToString(svgClone)],{type:'image/svg+xml'});
+        var url=URL.createObjectURL(blob);
+        var a=document.createElement('a');
+        a.href=url;
+        a.download='codeflow-'+Date.now()+'.svg';
+        a.click();
+        URL.revokeObjectURL(url);
+    }
     function copyText(text,successMessage){
         if(!text){showNotification('Nothing to copy.','error');return;}
         if(navigator.clipboard&&navigator.clipboard.writeText){
@@ -11647,9 +11675,10 @@ function App(){
                     ),
                     graphConfig.vizType!=='architecture'&&React.createElement(React.Fragment,null,
                         React.createElement('div',{style:{fontSize:10,fontWeight:600,color:'var(--t3)',textTransform:'uppercase',marginBottom:8,marginTop:data&&data.architectureDiagram?16:0}},'Graph Visualization'),
+                        !graphSvgExportEnabled(graphConfig.vizType)&&React.createElement('div',{style:{fontSize:9,color:'var(--t2)',marginBottom:10,lineHeight:1.4}},'Code cards are HTML overlays, not SVG. Switch to Graph to export an image.'),
                         React.createElement('div',{className:'export-options'},
-                            React.createElement('div',{className:'export-option',onClick:function(){exportSVG();setShowExport(false);}},React.createElement('div',{className:'export-option-icon'},React.createElement(Icon,{name:'image',size:'xl'})),React.createElement('div',{className:'export-option-label'},'SVG Image')),
-                            React.createElement('div',{className:'export-option',onClick:function(){exportPDF();setShowExport(false);}},React.createElement('div',{className:'export-option-icon'},React.createElement(Icon,{name:'file-pdf',size:'xl'})),React.createElement('div',{className:'export-option-label'},'PDF Document')),
+                            React.createElement('div',{className:'export-option'+(graphSvgExportEnabled(graphConfig.vizType)?'':' disabled'),'aria-disabled':graphSvgExportEnabled(graphConfig.vizType)?undefined:'true',onClick:function(){if(!graphSvgExportEnabled(graphConfig.vizType))return;exportSVG();setShowExport(false);}},React.createElement('div',{className:'export-option-icon'},React.createElement(Icon,{name:'image',size:'xl'})),React.createElement('div',{className:'export-option-label'},'SVG Image')),
+                            React.createElement('div',{className:'export-option'+(graphConfig.vizType==='graph'?'':' disabled'),'aria-disabled':graphConfig.vizType==='graph'?undefined:'true',onClick:function(){if(graphConfig.vizType!=='graph')return;exportPDF();setShowExport(false);}},React.createElement('div',{className:'export-option-icon'},React.createElement(Icon,{name:'file-pdf',size:'xl'})),React.createElement('div',{className:'export-option-label'},'PDF Document')),
                             React.createElement('div',{className:'export-option',onClick:function(){copyLink();setShowExport(false);}},React.createElement('div',{className:'export-option-icon'},React.createElement(Icon,{name:'link',size:'xl'})),React.createElement('div',{className:'export-option-label'},'Share Link'))
                         )
                     ),

@@ -155,6 +155,9 @@ test('Code view seeds cards without waiting for a click', () => {
   assert.equal(context.codeFileNavOpensCard('code'), true);
   assert.equal(context.codeFileNavOpensCard('graph'), false);
   assert.equal(context.codeFileNavOpensCard(null), false);
+  assert.equal(context.graphSvgExportEnabled('graph'), true);
+  assert.equal(context.graphSvgExportEnabled('graph3d'), true);
+  assert.equal(context.graphSvgExportEnabled('code'), false);
 });
 
 test('out-of-filter Code nav clears the folder filter so the target card can render', () => {
@@ -1036,6 +1039,10 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /codeViewSeedPath/);
   assert.match(htmlSource, /codeViewSeedPath\(selected&&selected\.path/);
   assert.match(htmlSource, /codeFileNavOpensCard/);
+  assert.match(htmlSource, /graphSvgExportEnabled/);
+  assert.match(htmlSource, /if\(!graphSvgExportEnabled\(graphConfig\.vizType\)\)/);
+  assert.match(htmlSource, /Code cards are HTML overlays, not SVG/);
+  assert.match(htmlSource, /export-option.*disabled/);
   assert.match(htmlSource, /function goToFile\(/);
   assert.match(htmlSource, /className:'blast-file',onClick:function\(\)\{goToFile\(path\);\}/);
   assert.match(htmlSource, /className:'conn-goto',onClick:function\(\)\{goToFile\(conn\.file\);\}/);
