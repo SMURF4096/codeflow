@@ -6045,6 +6045,23 @@ function hiddenOpenedCodePaths(paths,data,folderFilter){
     return hidden;
 }
 
+function codeCardPlacementKeepSet(openedPaths,visibleFiles){
+    var keep=Object.create(null);
+    (openedPaths||[]).forEach(function(path){if(path)keep[path]=true;});
+    (visibleFiles||[]).forEach(function(file){if(file&&file.path)keep[file.path]=true;});
+    return keep;
+}
+
+function pruneCodeCardPlacements(placements,keep){
+    var departed=Object.create(null);
+    Object.keys(placements||{}).forEach(function(path){
+        if(keep&&keep[path])return;
+        departed[path]=true;
+        delete placements[path];
+    });
+    return departed;
+}
+
 function evictHiddenCodeCards(list,hidden,count){
     var need=Number(count);
     if(!isFinite(need)||need<=0)return (list||[]).slice();
@@ -6594,7 +6611,9 @@ function isCodeCanvasDeselectTarget(target,svg){
 
 function isCodeCanvasNativeScrollTarget(target){
     if(!target||!target.closest)return false;
-    return !!(target.closest('.code-card.clipped .code-card-body')||target.closest('.code-sym-list'));
+    if(target.closest('.code-sym-list'))return true;
+    if(!target.closest('.code-card.clipped .code-card-body'))return false;
+    return !target.closest('.code-card.code-far');
 }
 
 function codeViewWheelUsesNativeScroll(event,target){
@@ -8966,14 +8985,8 @@ function App(){
                 pinnedPaths:codeCardUserPinnedRef.current
             });
         });
-        var keep=Object.create(null);
-        codeViewFiles.forEach(function(file){keep[file.path]=true;});
-        var departed=Object.create(null);
-        Object.keys(placements).forEach(function(path){
-            if(keep[path])return;
-            departed[path]=true;
-            delete placements[path];
-        });
+        var keep=codeCardPlacementKeepSet(openedCodePaths,codeViewFiles);
+        var departed=pruneCodeCardPlacements(placements,keep);
         placements=reflowUnpinnedCodeCards(placements,codeCardUserPinnedRef.current);
         codeCardPlacementRef.current=placements;
         sim.nodes().forEach(function(node){

@@ -346,6 +346,24 @@ test('appending a code card keeps existing cards in place', () => {
   assert.equal(pinned['src/b.js'].top, beforeB.top);
 });
 
+test('hidden-but-open cards keep their placements across folder filters', () => {
+  const placements = {
+    'src/a.js': { left: 12, top: 40, x: 232, y: 140, width: 440, height: 200, folder: 'src' },
+    'lib/b.js': { left: 540, top: 40, x: 760, y: 140, width: 440, height: 200, folder: 'lib' }
+  };
+  const keep = context.codeCardPlacementKeepSet(['src/a.js', 'lib/b.js'], [{ path: 'lib/b.js' }]);
+  assert.equal(keep['src/a.js'], true);
+  assert.equal(keep['lib/b.js'], true);
+  const departed = context.pruneCodeCardPlacements(placements, keep);
+  assert.equal(departed['src/a.js'], undefined);
+  assert.deepEqual(J(placements['src/a.js']).top, 40);
+  assert.deepEqual(J(placements['lib/b.js']).left, 540);
+  const closed = context.pruneCodeCardPlacements(placements, context.codeCardPlacementKeepSet(['lib/b.js'], [{ path: 'lib/b.js' }]));
+  assert.equal(closed['src/a.js'], true);
+  assert.equal(placements['src/a.js'], undefined);
+  assert.ok(placements['lib/b.js']);
+});
+
 test('hydration height growth reflows unpinned cards in the same folder', () => {
   const a = { path: 'src/a.js', folder: 'src' };
   const b = { path: 'src/b.js', folder: 'src' };
@@ -948,6 +966,21 @@ test('modifier-wheel over a clipped card still zooms the canvas', () => {
   assert.equal(context.codeViewWheelAction({ metaKey: true }), 'zoom');
 });
 
+test('far-zoom clipped cards let unmodified wheel pan the canvas', () => {
+  const farBody = {
+    closest(sel) {
+      if (sel === '.code-card.clipped .code-card-body') return this;
+      if (sel === '.code-card.code-far') return this;
+      return null;
+    }
+  };
+  const nearBody = { closest(sel) { return sel === '.code-card.clipped .code-card-body' ? this : null; } };
+  assert.equal(context.isCodeCanvasNativeScrollTarget(farBody), false);
+  assert.equal(context.codeViewWheelUsesNativeScroll({}, farBody), false);
+  assert.equal(context.codeViewWheelUsesNativeScroll({}, nearBody), true);
+  assert.equal(context.codeViewWheelAction({}), 'pan');
+});
+
 test('folder frames count as canvas background for deselect', () => {
   const svg = { id: 'svg' };
   const hull = {
@@ -1011,6 +1044,10 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /retryCodeSource/);
   assert.match(htmlSource, /sourceState==='failed'/);
   assert.match(htmlSource, /hiddenOpenedCodePaths/);
+  assert.match(htmlSource, /codeCardPlacementKeepSet/);
+  assert.match(htmlSource, /pruneCodeCardPlacements/);
+  assert.match(htmlSource, /codeCardPlacementKeepSet\(openedCodePaths,codeViewFiles\)/);
+  assert.match(htmlSource, /code-card\.code-far/);
   assert.match(htmlSource, /evictHiddenCodeCards/);
   assert.match(htmlSource, /updateHullsRef\.current/);
   assert.match(htmlSource, /codeViewWheelPanDelta/);
