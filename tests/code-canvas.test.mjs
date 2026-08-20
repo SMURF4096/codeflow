@@ -1081,6 +1081,8 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /Code cards are HTML overlays, not SVG/);
   assert.match(htmlSource, /export-option.*disabled/);
   assert.match(htmlSource, /function goToFile\(/);
+  assert.match(htmlSource, /React\.createElement\(TreeNode,\{node:data\.tree,selected:selected,onSelect:goToFile,expanded:expandedPaths,toggle:togglePath,filterFolder:filterByFolder,activeFilter:folderFilter\}\)/);
+  assert.doesNotMatch(htmlSource, /onSelect:goToFile\},expanded/);
   assert.match(htmlSource, /className:'blast-file',onClick:function\(\)\{goToFile\(path\);\}/);
   assert.match(htmlSource, /className:'conn-goto',onClick:function\(\)\{goToFile\(conn\.file\);\}/);
   assert.match(htmlSource, /currentHydrationId,/);
