@@ -276,6 +276,23 @@ test('code cards use a uniform width and grow with line count', () => {
   assert.equal(wide.width, context.CODE_CARD_WIDTH);
   assert.ok(wide.height < context.CODE_CARD_MAX_HEIGHT);
   assert.equal(wide.clipped, true);
+  const expanded = context.codeCardSize({ content: Array(400).fill('x'.repeat(120)).join('\n') }, { expand: true });
+  assert.ok(expanded.height > context.CODE_CARD_MAX_HEIGHT);
+  assert.equal(expanded.expand, true);
+  assert.equal(expanded.clipped, true);
+  const expandedWrap = context.codeCardSize({ content: Array(400).fill('x'.repeat(120)).join('\n') }, { expand: true, wrap: true });
+  assert.ok(expandedWrap.height > context.CODE_CARD_MAX_HEIGHT);
+  assert.equal(expandedWrap.clipped, false);
+  const wrapped = context.codeCardSize({ content: 'x'.repeat(200) }, { wrap: true });
+  assert.equal(wrapped.clipped, false);
+  assert.equal(wrapped.wrap, true);
+  const manyWide = context.codeCardSize({ content: Array(8).fill('x'.repeat(200)).join('\n') });
+  const manyWrapped = context.codeCardSize({ content: Array(8).fill('x'.repeat(200)).join('\n') }, { wrap: true });
+  assert.ok(manyWrapped.height > manyWide.height);
+  const wrapCols = context.codeCardWrapColumns();
+  assert.ok(wrapCols >= 20);
+  assert.equal(context.codeCardWrappedLineCount({ lines: 1, lineChars: [200] }, { wrap: true }), Math.ceil(200 / wrapCols));
+  assert.equal(context.codeCardVisualLineIndex({ content: 'short\n' + 'x'.repeat(200) }, 2, { wrap: true }), 2);
 });
 
 test('opened code paths append without reshuffling the set', () => {
@@ -546,6 +563,30 @@ test('opened code cards auto-align by directory', () => {
   const after = context.codeFolderCardBounds([{ id: 'src/a.js', x: 800, y: 400 }], sizes, 10);
   assert.ok(after.x > before.x);
   assert.ok(after.y > before.y);
+  const stale = context.codeFolderCardBounds([{ id: 'src/a.js', x: 220, y: 100, fx: 800, fy: 400 }], sizes, 10);
+  assert.ok(Math.abs(stale.x - after.x) < 1);
+  assert.ok(Math.abs(stale.y - after.y) < 1);
+  const xy = context.liveGraphNodeXY({ x: 10, y: 20, fx: 90, fy: 40 });
+  assert.equal(xy.x, 90);
+  assert.equal(xy.y, 40);
+  const layer = {
+    querySelectorAll: () => [{
+      getAttribute: () => 'src/a.js',
+      style: { left: '580px', top: '240px', width: '320px', height: '200px' }
+    }]
+  };
+  const boxes = context.readCodeCardWorldBoxes(layer);
+  assert.equal(boxes['src/a.js'].x, 580);
+  const fromBox = context.codeFolderCardBounds([{ id: 'src/a.js', x: 0, y: 0 }], sizes, 10, boxes);
+  assert.ok(fromBox.x > 500);
+  const union = context.codeFolderHullBounds(
+    [{ id: 'src/a.js', x: 800, y: 400 }],
+    [{ id: 'src/old.js', x: 220, y: 100 }],
+    sizes,
+    10
+  );
+  assert.ok(union.width > 320);
+  assert.ok(union.x < 220);
 });
 
 test('Code camera fits only when it has not been armed yet', () => {
@@ -1146,6 +1187,26 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.doesNotMatch(htmlSource, /if\(data&&!hadAnalysisRef\.current\)setLeftTab\('files'\)/);
   assert.match(htmlSource, /function renderColorByControl\(/);
   assert.match(htmlSource, /className:'color-by'/);
+  assert.match(htmlSource, /function renderCodeViewPrefs\(/);
+  assert.match(htmlSource, /className:'color-by code-view-prefs'/);
+  assert.match(htmlSource, /setCodeViewExpand\(false\)/);
+  assert.match(htmlSource, /setCodeViewExpand\(true\)/);
+  assert.match(htmlSource, /setCodeViewWrap\(true\)/);
+  assert.match(htmlSource, /setCodeViewWrap\(false\)/);
+  assert.match(htmlSource, /normalizeCodeCardPrefs/);
+  assert.match(htmlSource, /codeCardWrapColumns/);
+  assert.match(htmlSource, /liveGraphNodeXY/);
+  assert.match(htmlSource, /readCodeCardWorldBoxes/);
+  assert.match(htmlSource, /codeFolderHullBounds/);
+  assert.match(htmlSource, /liveNodesByFolder/);
+  assert.match(htmlSource, /readCodeCardWorldBoxes\(codeCardsLayerRef\.current\)/);
+  assert.match(htmlSource, /codeFolderHullBounds\(cardNodes,leftover/);
+  assert.match(htmlSource, /if\(updateHullsRef\.current\)updateHullsRef\.current\(\)/);
+  assert.match(htmlSource, /codeViewExpand,codeViewWrap/);
+  assert.match(htmlSource, /cardSize\.expand\?' expand'/);
+  assert.match(htmlSource, /cardSize\.wrap\?' wrap'/);
+  assert.match(htmlSource, /\.code-card\.wrap \.file-preview-text/);
+  assert.match(htmlSource, /white-space:pre-wrap/);
   assert.doesNotMatch(htmlSource, /sidebar-title'\},'Color By'/);
   assert.doesNotMatch(htmlSource, /sidebar-title'\},'Explorer'/);
 });

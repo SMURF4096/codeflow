@@ -500,7 +500,14 @@ body{font-family:'JetBrains Mono',monospace;background:var(--bg0);color:var(--t0
 .code-card-retry{background:transparent;border:1px solid var(--border);color:var(--t2);padding:4px 8px;border-radius:4px;font-size:10px;cursor:pointer}
 .code-card-retry:hover{border-color:var(--acc);color:var(--acc)}
 .code-card.clipped .code-card-body{overflow:auto;touch-action:pan-x pan-y}
+.code-card.expand .code-card-body,.code-card.expand.clipped .code-card-body{overflow:hidden}
+.code-card.wrap .file-preview-line{align-items:flex-start;height:auto}
+.code-card.wrap .file-preview-text{white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;min-width:0}
+.code-card.wrap .code-card-body,.code-card.wrap.clipped .code-card-body{overflow-x:hidden}
+.code-card.wrap.clipped:not(.expand) .code-card-body{overflow-y:auto}
 .code-card-body .file-preview-code{padding:8px 0;font-size:11px}
+.color-by.code-view-prefs{flex-direction:column;align-items:stretch;gap:4px;padding:6px}
+.code-view-pref-row{display:flex;align-items:center;gap:2px}
 .code-card.code-far .code-card-body{overflow:hidden}
 .code-card.code-far .file-preview-linenum{display:none}
 .code-card.code-far .file-preview-line{min-height:3px;height:3px;overflow:hidden}
@@ -5939,27 +5946,71 @@ function codeCardContentMetrics(file){
     var content=file&&typeof file.content==='string'?file.content:'';
     var lines=content?content.split('\n'):[''];
     var maxLineChars=0;
+    var lineChars=[];
     for(var i=0;i<lines.length;i++){
         var n=String(lines[i]).length;
+        lineChars.push(n);
         if(n>maxLineChars)maxLineChars=n;
     }
-    return{lines:Math.max(1,lines.length),maxLineChars:maxLineChars};
+    return{lines:Math.max(1,lines.length),maxLineChars:maxLineChars,lineChars:lineChars};
 }
 
 var CODE_CARD_WIDTH=440;
+
+function normalizeCodeCardPrefs(prefs){
+    prefs=prefs||{};
+    return{expand:!!prefs.expand,wrap:!!prefs.wrap};
+}
+
+function codeCardWrapColumns(){
+    return Math.max(1,Math.floor((CODE_CARD_WIDTH-CODE_CARD_GUTTER-CODE_CARD_BODY_PAD)/CODE_CARD_CHAR_WIDTH));
+}
+
+function codeCardWrappedLineCount(metrics,prefs){
+    metrics=metrics||codeCardContentMetrics(null);
+    prefs=normalizeCodeCardPrefs(prefs);
+    if(!prefs.wrap)return Math.max(1,metrics.lines||1);
+    var cols=codeCardWrapColumns();
+    var chars=metrics.lineChars||[];
+    var count=0;
+    if(!chars.length)return Math.max(1,metrics.lines||1);
+    for(var i=0;i<chars.length;i++){
+        count+=Math.max(1,Math.ceil((chars[i]||0)/cols)||1);
+    }
+    return Math.max(1,count);
+}
+
+function codeCardVisualLineIndex(file,line,prefs){
+    var n=Math.max(1,Number(line)||1);
+    prefs=normalizeCodeCardPrefs(prefs);
+    if(!prefs.wrap)return n;
+    var metrics=codeCardContentMetrics(file);
+    var cols=codeCardWrapColumns();
+    var chars=metrics.lineChars||[];
+    var visual=0;
+    var lim=Math.min(chars.length,n-1);
+    for(var i=0;i<lim;i++){
+        visual+=Math.max(1,Math.ceil((chars[i]||0)/cols)||1);
+    }
+    return visual+1;
+}
 
 function codeCardNaturalWidth(metrics){
     metrics=metrics||{maxLineChars:0};
     return CODE_CARD_GUTTER+CODE_CARD_BODY_PAD+(metrics.maxLineChars||0)*CODE_CARD_CHAR_WIDTH;
 }
 
-function codeCardSize(file){
+function codeCardSize(file,prefs){
+    prefs=normalizeCodeCardPrefs(prefs);
     var metrics=codeCardContentMetrics(file);
     var width=CODE_CARD_WIDTH;
     var naturalWidth=codeCardNaturalWidth(metrics);
-    var naturalHeight=CODE_CARD_HEAD_HEIGHT+CODE_CARD_BODY_PAD+metrics.lines*CODE_CARD_LINE_HEIGHT;
-    var height=Math.max(CODE_CARD_MIN_HEIGHT,Math.min(CODE_CARD_MAX_HEIGHT,naturalHeight));
-    return{width:width,height:height,clipped:naturalHeight>CODE_CARD_MAX_HEIGHT||naturalWidth>width};
+    var visualLines=codeCardWrappedLineCount(metrics,prefs);
+    var naturalHeight=CODE_CARD_HEAD_HEIGHT+CODE_CARD_BODY_PAD+visualLines*CODE_CARD_LINE_HEIGHT;
+    var height=Math.max(CODE_CARD_MIN_HEIGHT,prefs.expand?naturalHeight:Math.min(CODE_CARD_MAX_HEIGHT,naturalHeight));
+    var heightClipped=!prefs.expand&&naturalHeight>CODE_CARD_MAX_HEIGHT;
+    var widthClipped=!prefs.wrap&&naturalWidth>width;
+    return{width:width,height:height,clipped:heightClipped||widthClipped,expand:prefs.expand,wrap:prefs.wrap,naturalHeight:naturalHeight};
 }
 
 function codeCardCollisionRadius(size){
@@ -6238,9 +6289,10 @@ function codeCardSymbolLine(file,name){
     return null;
 }
 
-function codeCardLineY(size,line){
+function codeCardLineY(size,line,file,prefs){
     var n=Math.max(1,Number(line)||1);
-    return CODE_CARD_HEAD_HEIGHT+8+(n-0.5)*CODE_CARD_LINE_HEIGHT;
+    var visual=file?codeCardVisualLineIndex(file,n,prefs):n;
+    return CODE_CARD_HEAD_HEIGHT+8+(visual-0.5)*CODE_CARD_LINE_HEIGHT;
 }
 
 function codeLinkPrefersVertical(src,tgt){
@@ -6331,19 +6383,87 @@ function codeCardLinkPath(link,sizesByPath,filesByPath,cardPaths){
     return codeEdgeBezier(p1.x,p1.y,p2.x,p2.y);
 }
 
-function codeFolderCardBounds(nodes,sizesByPath,pad){
+function liveGraphNodeXY(node){
+    if(!node)return null;
+    var x=node.fx!=null&&isFinite(Number(node.fx))?Number(node.fx):Number(node.x);
+    var y=node.fy!=null&&isFinite(Number(node.fy))?Number(node.fy):Number(node.y);
+    if(!isFinite(x)||!isFinite(y))return null;
+    return{x:x,y:y};
+}
+
+function readCodeCardWorldBox(card){
+    if(!card||!card.style)return null;
+    var x=parseFloat(card.style.left);
+    var y=parseFloat(card.style.top);
+    var width=parseFloat(card.style.width);
+    var height=parseFloat(card.style.height);
+    if(!isFinite(x)||!isFinite(y)||!isFinite(width)||!isFinite(height)||width<=0||height<=0)return null;
+    return{x:x,y:y,width:width,height:height};
+}
+
+function readCodeCardWorldBoxes(layer){
+    var out=Object.create(null);
+    if(!layer||!layer.querySelectorAll)return out;
+    var cards=layer.querySelectorAll('[data-code-card]');
+    Array.prototype.forEach.call(cards,function(card){
+        var path=card.getAttribute('data-code-card');
+        var box=readCodeCardWorldBox(card);
+        if(path&&box)out[path]=box;
+    });
+    return out;
+}
+
+function codeFolderMemberBox(node,sizesByPath,boxesByPath,fallbackR){
+    if(!node)return null;
+    if(boxesByPath&&boxesByPath[node.id])return boxesByPath[node.id];
+    var xy=liveGraphNodeXY(node);
+    if(!xy)return null;
+    var size=sizesByPath&&sizesByPath[node.id];
+    if(size&&isFinite(size.width)&&isFinite(size.height)){
+        return{x:xy.x-size.width/2,y:xy.y-size.height/2,width:size.width,height:size.height};
+    }
+    if(fallbackR){
+        return{x:xy.x-fallbackR,y:xy.y-fallbackR,width:fallbackR*2,height:fallbackR*2};
+    }
+    size=codeCardSize(null);
+    return{x:xy.x-size.width/2,y:xy.y-size.height/2,width:size.width,height:size.height};
+}
+
+function unionPaddedBoxes(boxes,pad,labelExtra){
     pad=pad==null?24:pad;
+    labelExtra=labelExtra==null?22:labelExtra;
     var minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
-    (nodes||[]).forEach(function(node){
-        if(!node||!isFinite(node.x)||!isFinite(node.y))return;
-        var size=(sizesByPath&&sizesByPath[node.id])||codeCardSize(null);
-        minX=Math.min(minX,node.x-size.width/2);
-        minY=Math.min(minY,node.y-size.height/2);
-        maxX=Math.max(maxX,node.x+size.width/2);
-        maxY=Math.max(maxY,node.y+size.height/2);
+    (boxes||[]).forEach(function(box){
+        if(!box||!isFinite(box.x)||!isFinite(box.y)||!isFinite(box.width)||!isFinite(box.height))return;
+        minX=Math.min(minX,box.x);
+        minY=Math.min(minY,box.y);
+        maxX=Math.max(maxX,box.x+box.width);
+        maxY=Math.max(maxY,box.y+box.height);
     });
     if(!isFinite(minX))return null;
-    return{x:minX-pad,y:minY-pad-22,width:maxX-minX+pad*2,height:maxY-minY+pad*2+22};
+    return{x:minX-pad,y:minY-pad-labelExtra,width:maxX-minX+pad*2,height:maxY-minY+pad*2+labelExtra};
+}
+
+function codeFolderCardBounds(nodes,sizesByPath,pad,boxesByPath){
+    var boxes=[];
+    (nodes||[]).forEach(function(node){
+        var box=codeFolderMemberBox(node,sizesByPath,boxesByPath,0);
+        if(box)boxes.push(box);
+    });
+    return unionPaddedBoxes(boxes,pad,22);
+}
+
+function codeFolderHullBounds(cardNodes,leftoverNodes,sizesByPath,pad,boxesByPath){
+    var boxes=[];
+    (cardNodes||[]).forEach(function(node){
+        var box=codeFolderMemberBox(node,sizesByPath,boxesByPath,0);
+        if(box)boxes.push(box);
+    });
+    (leftoverNodes||[]).forEach(function(node){
+        var box=codeFolderMemberBox(node,sizesByPath,null,30);
+        if(box)boxes.push(box);
+    });
+    return unionPaddedBoxes(boxes,pad==null?28:pad,22);
 }
 
 function codeCanvasTransformStyle(transform){
@@ -6499,6 +6619,10 @@ function applyCodeCardLayout(layer,nodesById,transform,sizesByPath){
         if(card.classList){
             if(size.clipped&&card.classList.add)card.classList.add('clipped');
             else if(card.classList.remove)card.classList.remove('clipped');
+            if(size.expand&&card.classList.add)card.classList.add('expand');
+            else if(card.classList.remove)card.classList.remove('expand');
+            if(size.wrap&&card.classList.add)card.classList.add('wrap');
+            else if(card.classList.remove)card.classList.remove('wrap');
         }
         var title=card.querySelector?card.querySelector('.code-card-name'):null;
         if(title)title.style.transform='scale('+titleScale+')';
@@ -6572,12 +6696,12 @@ function extractFileSymbols(file,connections){
     return symbols;
 }
 
-function codeCardSymbolPills(file,connections){
-    var size=codeCardSize(file);
+function codeCardSymbolPills(file,connections,prefs){
+    var size=codeCardSize(file,prefs);
     return extractFileSymbols(file,connections).map(function(sym){
         var line=codeCardSymbolLine(file,sym.name);
         if(!line)return null;
-        return{name:sym.name,kind:sym.kind,line:line,top:codeCardLineY(size,line)};
+        return{name:sym.name,kind:sym.kind,line:line,top:codeCardLineY(size,line,file,prefs)};
     }).filter(Boolean);
 }
 
@@ -7372,6 +7496,8 @@ function App(){
     var _openedCards=useState([]),openedCodePaths=_openedCards[0],setOpenedCodePaths=_openedCards[1];
     var _sourceFailed=useState(Object.create(null)),codeSourceFailed=_sourceFailed[0],setCodeSourceFailed=_sourceFailed[1];
     var _pillScroll=useState(0),codePillScroll=_pillScroll[0],setCodePillScroll=_pillScroll[1];
+    var _codeExpand=useState(false),codeViewExpand=_codeExpand[0],setCodeViewExpand=_codeExpand[1];
+    var _codeWrap=useState(true),codeViewWrap=_codeWrap[0],setCodeViewWrap=_codeWrap[1];
     var pendingRecentDeleteTimerRef=useRef(null);
     var zipInputRef=useRef(null);
     var zipArchiveRef=useRef(null);
@@ -8924,9 +9050,13 @@ function App(){
     if(data&&data.files)data.files.forEach(function(file){filesByPath[file.path]=file;});
     codeFilesByPathRef.current=filesByPath;
 
+    function currentCodeCardPrefs(){
+        return normalizeCodeCardPrefs({expand:codeViewExpand,wrap:codeViewWrap});
+    }
     function currentCodeCardSizes(){
+        var prefs=currentCodeCardPrefs();
         var sizes=Object.create(null);
-        codeViewFiles.forEach(function(file){sizes[file.path]=codeCardSize(file);});
+        codeViewFiles.forEach(function(file){sizes[file.path]=codeCardSize(file,prefs);});
         codeCardSizesRef.current=sizes;
         return sizes;
     }
@@ -8967,7 +9097,7 @@ function App(){
         codeViewFiles.forEach(function(file){
             if(codeCardUserPinnedRef.current.has(file.path)&&placements[file.path]){
                 var live=graphNodesByIdRef.current[file.path];
-                var size=sizes[file.path]||codeCardSize(file);
+                var size=sizes[file.path]||codeCardSize(file,currentCodeCardPrefs());
                 if(live&&isFinite(live.fx)&&isFinite(live.fy)){
                     placements[file.path]={
                         left:live.fx-size.width/2,
@@ -8981,7 +9111,7 @@ function App(){
                     return;
                 }
             }
-            placements=appendCodeCardPlacement(placements,file,sizes[file.path]||codeCardSize(file),{
+            placements=appendCodeCardPlacement(placements,file,sizes[file.path]||codeCardSize(file,currentCodeCardPrefs()),{
                 pinnedPaths:codeCardUserPinnedRef.current
             });
         });
@@ -9264,18 +9394,29 @@ function App(){
         if(keepReadable||!isLargeGraph||graphConfig.showLabels){
             node.append('text').attr('class','node-label').attr('text-anchor','middle').attr('dy',0).attr('fill',theme==='light'?'#333':'#eee').attr('font-size',function(d){return (keepReadable?Math.max(9,Math.min(12,getR(d)*0.7)):Math.max(6,Math.min(10,getR(d)*0.6)))+'px';}).attr('font-family','JetBrains Mono').attr('font-weight','600').attr('pointer-events','none').text(function(d){var n=d.name.replace(/\.[^.]+$/,'');if(keepReadable)return n.length>18?n.slice(0,17)+'…':n;var maxLen=Math.max(4,Math.floor(getR(d)/2));return n.length>maxLen+1?n.slice(0,maxLen)+'…':n;});
         }
-        // Pre-index nodes by folder for faster hull computation
-        var nodesByFolder={};
-        folders.forEach(function(f){nodesByFolder[f]=nodes.filter(function(n){return n.folder===f;});});
+        function liveNodesByFolder(){
+            var live=(simRef.current&&simRef.current.nodes())||nodes;
+            var grouped=Object.create(null);
+            (live||[]).forEach(function(n){
+                if(!n)return;
+                var folder=n.folder||'root';
+                if(!grouped[folder])grouped[folder]=[];
+                grouped[folder].push(n);
+            });
+            return grouped;
+        }
         function updateHulls(){
             hullLayer.selectAll('*').remove();
-            folders.forEach(function(f){
-                var fn=nodesByFolder[f];
+            var grouped=liveNodesByFolder();
+            var boxesByPath=keepReadable?readCodeCardWorldBoxes(codeCardsLayerRef.current):null;
+            Object.keys(grouped).forEach(function(f){
+                var fn=grouped[f];
                 if(!fn||fn.length<1)return;
                 var cardNodes=keepReadable?fn.filter(function(n){return codeCardPathsRef.current.has(n.id);}):[];
+                var leftover=keepReadable?fn.filter(function(n){return !codeCardPathsRef.current.has(n.id);}):fn;
                 var color=colorMap[f]||COLORS[folders.indexOf(f)%COLORS.length];
                 if(cardNodes.length){
-                    var bounds=codeFolderCardBounds(cardNodes,codeCardSizesRef.current,28);
+                    var bounds=codeFolderHullBounds(cardNodes,leftover,codeCardSizesRef.current,28,boxesByPath);
                     if(bounds){
                         hullLayer.append('rect').attr('x',bounds.x).attr('y',bounds.y).attr('width',bounds.width).attr('height',bounds.height).attr('rx',14).attr('fill',color).attr('fill-opacity',0.06).attr('stroke',color).attr('stroke-width',2).attr('stroke-opacity',0.35);
                         hullLayer.append('text').attr('class','hull-label').attr('x',bounds.x+12).attr('y',bounds.y+16).attr('text-anchor','start').attr('fill',color).attr('font-size',keepReadable?'12px':'10px').attr('font-family','JetBrains Mono').attr('font-weight','600').attr('opacity',0.9).text(f||'root');
@@ -9283,15 +9424,16 @@ function App(){
                     return;
                 }
                 var pts=[];
-                fn.forEach(function(n){
-                    if(!n.x||!n.y)return;
-                    pts.push([n.x-30,n.y-30],[n.x+30,n.y-30],[n.x-30,n.y+30],[n.x+30,n.y+30]);
+                leftover.forEach(function(n){
+                    var xy=liveGraphNodeXY(n);
+                    if(!xy)return;
+                    pts.push([xy.x-30,xy.y-30],[xy.x+30,xy.y-30],[xy.x-30,xy.y+30],[xy.x+30,xy.y+30]);
                 });
                 if(pts.length<3)return;
                 var hull=d3.polygonHull(pts);
                 if(hull){
                     hullLayer.append('path').attr('d','M'+hull.join('L')+'Z').attr('fill',color).attr('fill-opacity',0.04).attr('stroke',color).attr('stroke-width',2).attr('stroke-opacity',0.25).attr('rx',8);
-                    var cx=d3.mean(fn,function(n){return n.x;}),cy=d3.min(fn,function(n){return n.y;})-38;
+                    var cx=d3.mean(leftover,function(n){var xy=liveGraphNodeXY(n);return xy?xy.x:null;}),cy=d3.min(leftover,function(n){var xy=liveGraphNodeXY(n);return xy?xy.y:null;})-38;
                     hullLayer.append('text').attr('class','hull-label').attr('x',cx).attr('y',cy).attr('text-anchor','middle').attr('fill',color).attr('font-size',keepReadable?'11px':'10px').attr('font-family','JetBrains Mono').attr('font-weight','600').attr('opacity',0.85).text(f||'root');
                 }
             });
@@ -9342,7 +9484,7 @@ function App(){
         placeRemainingCodeNodes();
         syncCodeCards();
         if(updateHullsRef.current)updateHullsRef.current();
-    },[codeViewFiles,graphConfig.vizType,graphConfig.linkDist]);
+    },[codeViewFiles,graphConfig.vizType,graphConfig.linkDist,codeViewExpand,codeViewWrap]);
 
     // 3D Force Graph Hook
     useEffect(function(){
@@ -10814,6 +10956,21 @@ function App(){
             React.createElement('button',{type:'button',className:'color-by-btn'+(colorMode==='churn'?' active':''),onClick:function(){setColorMode('churn');}},'Churn')
         );
     }
+    function renderCodeViewPrefs(){
+        if(graphConfig.vizType!=='code')return null;
+        return React.createElement('div',{className:'color-by code-view-prefs',role:'group','aria-label':'Code view options'},
+            React.createElement('div',{className:'code-view-pref-row'},
+                React.createElement('span',{className:'color-by-label'},'Height'),
+                React.createElement('button',{type:'button',className:'color-by-btn'+(!codeViewExpand?' active':''),onClick:function(){setCodeViewExpand(false);}},'Scroll'),
+                React.createElement('button',{type:'button',className:'color-by-btn'+(codeViewExpand?' active':''),onClick:function(){setCodeViewExpand(true);}},'Expand')
+            ),
+            React.createElement('div',{className:'code-view-pref-row'},
+                React.createElement('span',{className:'color-by-label'},'Wrap'),
+                React.createElement('button',{type:'button',className:'color-by-btn'+(codeViewWrap?' active':''),onClick:function(){setCodeViewWrap(true);}},'On'),
+                React.createElement('button',{type:'button',className:'color-by-btn'+(!codeViewWrap?' active':''),onClick:function(){setCodeViewWrap(false);}},'Off')
+            )
+        );
+    }
     function renderSidebarEmpty(title,desc){
         return React.createElement('div',{className:'empty-state'},
             React.createElement(Icon,{name:'search',size:'xxl',className:'empty-icon'}),
@@ -10885,7 +11042,7 @@ function App(){
         var startX=e.clientX,startY=e.clientY,originX=node.x,originY=node.y,moved=false;
         node.fx=node.x;node.fy=node.y;
         function writePlacement(){
-            var size=codeCardSizesRef.current[file.path]||codeCardSize(file);
+            var size=codeCardSizesRef.current[file.path]||codeCardSize(file,currentCodeCardPrefs());
             var prev=codeCardPlacementRef.current[file.path]||{};
             codeCardPlacementRef.current[file.path]={
                 left:node.fx-size.width/2,
@@ -10961,9 +11118,10 @@ function App(){
                 :(sourceState==='loading'?'Loading source...':'Reopen this project to read source');
             body=React.createElement('div',{className:'empty-desc',style:{padding:'12px'}},message);
         }
-        var cardSize=codeCardSize(file);
-        var pills=isPrimary?codeCardSymbolPills(file,data?data.connections:[]):[];
-        return React.createElement('div',{key:file.path,'data-code-card':file.path,className:'code-card'+(isPrimary?' primary':' linked')+(cardSize.clipped?' clipped':''),onClick:function(e){
+        var cardPrefs=currentCodeCardPrefs();
+        var cardSize=codeCardSize(file,cardPrefs);
+        var pills=isPrimary?codeCardSymbolPills(file,data?data.connections:[],cardPrefs):[];
+        return React.createElement('div',{key:file.path,'data-code-card':file.path,className:'code-card'+(isPrimary?' primary':' linked')+(cardSize.clipped?' clipped':'')+(cardSize.expand?' expand':'')+(cardSize.wrap?' wrap':''),onClick:function(e){
             var taken=consumeCodeCardClick(codeCardIgnoreClickRef.current);
             codeCardIgnoreClickRef.current=taken.ignoreNextClick;
             if(taken.ignore){e.stopPropagation();return;}
@@ -11380,6 +11538,7 @@ function App(){
                         )
                     ),
                     renderColorByControl(),
+                    renderCodeViewPrefs(),
                     graphConfig.vizType!=='architecture'&&graphConfig.vizType!=='code'&&React.createElement('div',{className:'legend'+(legendCollapsed?' collapsed':'')+((graphConfig.vizType==='graph'||graphConfig.vizType==='graph3d')?' with-color-by':'')},
                         React.createElement('div',{className:'legend-header',onClick:function(){setLegendCollapsed(!legendCollapsed);}},
                             React.createElement('div',{className:'legend-title',style:{margin:0}},colorMode==='folder'?'Folders':colorMode==='layer'?'Layers':'Churn'),
