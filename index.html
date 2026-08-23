@@ -500,14 +500,17 @@ body{font-family:'JetBrains Mono',monospace;background:var(--bg0);color:var(--t0
 .code-card-retry{background:transparent;border:1px solid var(--border);color:var(--t2);padding:4px 8px;border-radius:4px;font-size:10px;cursor:pointer}
 .code-card-retry:hover{border-color:var(--acc);color:var(--acc)}
 .code-card.clipped .code-card-body{overflow:auto;touch-action:pan-x pan-y}
-.code-card.expand .code-card-body,.code-card.expand.clipped .code-card-body{overflow:hidden}
+.code-card.expand:not(.wrap) .code-card-body{overflow-x:auto;overflow-y:hidden;touch-action:pan-x}
+.code-card.expand.wrap .code-card-body{overflow:hidden}
+.code-card.wrap:not(.expand) .code-card-body{overflow-x:hidden;overflow-y:auto}
 .code-card.wrap .file-preview-line{align-items:flex-start;height:auto}
 .code-card.wrap .file-preview-text{white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;min-width:0}
-.code-card.wrap .code-card-body,.code-card.wrap.clipped .code-card-body{overflow-x:hidden}
-.code-card.wrap.clipped:not(.expand) .code-card-body{overflow-y:auto}
 .code-card-body .file-preview-code{padding:8px 0;font-size:11px}
-.color-by.code-view-prefs{flex-direction:column;align-items:stretch;gap:4px;padding:6px}
-.code-view-pref-row{display:flex;align-items:center;gap:2px}
+.color-by.code-view-prefs{flex-direction:row;align-items:center;gap:2px;padding:3px 3px 3px 6px}
+.code-card-resize{position:absolute;z-index:3;background:transparent}
+.code-card-resize-e{top:14px;right:-4px;width:10px;bottom:14px;cursor:ew-resize}
+.code-card-resize-s{left:14px;right:14px;bottom:-4px;height:10px;cursor:ns-resize}
+.code-card-resize-se{right:-3px;bottom:-3px;width:14px;height:14px;cursor:nwse-resize}
 .code-card.code-far .code-card-body{overflow:hidden}
 .code-card.code-far .file-preview-linenum{display:none}
 .code-card.code-far .file-preview-line{min-height:3px;height:3px;overflow:hidden}
@@ -6010,7 +6013,75 @@ function codeCardSize(file,prefs){
     var height=Math.max(CODE_CARD_MIN_HEIGHT,prefs.expand?naturalHeight:Math.min(CODE_CARD_MAX_HEIGHT,naturalHeight));
     var heightClipped=!prefs.expand&&naturalHeight>CODE_CARD_MAX_HEIGHT;
     var widthClipped=!prefs.wrap&&naturalWidth>width;
-    return{width:width,height:height,clipped:heightClipped||widthClipped,expand:prefs.expand,wrap:prefs.wrap,naturalHeight:naturalHeight};
+    return{width:width,height:height,clipped:heightClipped||widthClipped,expand:prefs.expand,wrap:prefs.wrap,naturalHeight:naturalHeight,naturalWidth:naturalWidth};
+}
+
+var CODE_CARD_RESIZE_MAX_WIDTH=1200;
+
+function clampCodeCardResize(width,height,prefs){
+    prefs=normalizeCodeCardPrefs(prefs);
+    var w=Math.max(CODE_CARD_MIN_WIDTH,Math.min(CODE_CARD_RESIZE_MAX_WIDTH,Number(width)||CODE_CARD_WIDTH));
+    var h=Math.max(CODE_CARD_MIN_HEIGHT,Number(height)||CODE_CARD_MIN_HEIGHT);
+    if(!prefs.expand)h=Math.min(CODE_CARD_MAX_HEIGHT,h);
+    return{width:w,height:h};
+}
+
+function applyCodeCardUserSize(base,override){
+    base=base||codeCardSize(null);
+    if(!override)return base;
+    var next=clampCodeCardResize(override.width!=null?override.width:base.width,override.height!=null?override.height:base.height,base);
+    var heightClipped=!base.expand&&(base.naturalHeight||0)>next.height;
+    var widthClipped=!base.wrap&&(base.naturalWidth||0)>next.width;
+    return Object.assign({},base,{width:next.width,height:next.height,clipped:heightClipped||widthClipped});
+}
+
+function codeCardResizeDelta(clientX,clientY,startX,startY,startW,startH,scale,edge){
+    var k=Number(scale);
+    if(!isFinite(k)||k<=0)k=1;
+    var dx=((Number(clientX)||0)-(Number(startX)||0))/k;
+    var dy=((Number(clientY)||0)-(Number(startY)||0))/k;
+    var width=Number(startW)||CODE_CARD_WIDTH;
+    var height=Number(startH)||CODE_CARD_MIN_HEIGHT;
+    if(edge==='e'||edge==='se')width+=dx;
+    if(edge==='s'||edge==='se')height+=dy;
+    return{width:width,height:height,dx:dx,dy:dy};
+}
+
+function graphFolderCenters(folders,width,height,options){
+    options=options||{};
+    var list=[];
+    (folders||[]).forEach(function(f){if(f!=null&&list.indexOf(f)<0)list.push(f);});
+    var out=Object.create(null);
+    if(!list.length)return out;
+    var cols=Math.max(2,Math.ceil(Math.sqrt(list.length)));
+    var rows=Math.max(1,Math.ceil(list.length/cols));
+    var minW=options.minCellW==null?0:Number(options.minCellW)||0;
+    var minH=options.minCellH==null?0:Number(options.minCellH)||0;
+    var cw=Math.max(minW,(Number(width)||800)/(cols+1));
+    var ch=Math.max(minH,(Number(height)||600)/(rows+1));
+    list.forEach(function(f,i){
+        out[f]={x:(i%cols+1)*cw,y:(Math.floor(i/cols)+1)*ch};
+    });
+    return out;
+}
+
+function parkLeftoverCodeNodes(nodes,cardPaths,centers){
+    (nodes||[]).forEach(function(node){
+        if(!node)return;
+        if(cardPaths&&cardPaths.has(node.id))return;
+        if(node.fx!=null&&isFinite(Number(node.fx)))return;
+        var c=centers&&centers[node.folder||'root'];
+        if(!c||!isFinite(c.x)||!isFinite(c.y))return;
+        node.x=c.x;
+        node.y=c.y;
+    });
+    return nodes;
+}
+
+function boxesOverlap(a,b,gap){
+    if(!a||!b)return false;
+    gap=gap==null?0:Number(gap)||0;
+    return !(a.x>b.x+b.width+gap||a.x+a.width<b.x-gap||a.y>b.y+b.height+gap||a.y+a.height<b.y-gap);
 }
 
 function codeCardCollisionRadius(size){
@@ -6200,14 +6271,20 @@ function appendCodeCardPlacement(placements,file,size,options){
     });
     var left,top;
     if(!same.length){
-        var maxRight=originX;
-        Object.keys(next).forEach(function(id){
-            var item=next[id];
-            if(!item)return;
-            maxRight=Math.max(maxRight,item.left+item.width+gapX);
-        });
-        left=Object.keys(next).length?maxRight:originX;
-        top=originY;
+        var center=options.centers&&options.centers[folder];
+        if(center&&isFinite(center.x)&&isFinite(center.y)){
+            left=center.x-size.width/2;
+            top=center.y-size.height/2;
+        }else{
+            var maxRight=originX;
+            Object.keys(next).forEach(function(id){
+                var item=next[id];
+                if(!item)return;
+                maxRight=Math.max(maxRight,item.left+item.width+gapX);
+            });
+            left=Object.keys(next).length?maxRight:originX;
+            top=originY;
+        }
     }else{
         left=folderLeft;
         var maxBottom=originY;
@@ -6252,7 +6329,13 @@ function reflowUnpinnedCodeCards(placements,pinnedPaths,options){
             if(dy)return dy;
             return a<b?-1:a>b?1:0;
         });
-        var cursor=originY;
+        var center=options.centers&&options.centers[folder];
+        var startY=originY;
+        if(center&&isFinite(center.y)){
+            var firstH=next[paths[0]]&&next[paths[0]].height;
+            startY=center.y-((firstH||CODE_CARD_MIN_HEIGHT)/2);
+        }
+        var cursor=startY;
         paths.forEach(function(path){
             var item=Object.assign({},next[path]);
             next[path]=item;
@@ -6453,17 +6536,29 @@ function codeFolderCardBounds(nodes,sizesByPath,pad,boxesByPath){
     return unionPaddedBoxes(boxes,pad,22);
 }
 
+function codeFolderHullsByFolder(groups,sizesByPath,pad,boxesByPath){
+    var out=Object.create(null);
+    Object.keys(groups||{}).forEach(function(folder){
+        var group=groups[folder]||{};
+        out[folder]=codeFolderHullBounds(group.cards||[],group.leftover||[],sizesByPath,pad,boxesByPath);
+    });
+    return out;
+}
+
 function codeFolderHullBounds(cardNodes,leftoverNodes,sizesByPath,pad,boxesByPath){
     var boxes=[];
     (cardNodes||[]).forEach(function(node){
         var box=codeFolderMemberBox(node,sizesByPath,boxesByPath,0);
         if(box)boxes.push(box);
     });
+    var cardUnion=unionPaddedBoxes(boxes,0,0);
     (leftoverNodes||[]).forEach(function(node){
         var box=codeFolderMemberBox(node,sizesByPath,null,30);
-        if(box)boxes.push(box);
+        if(!box)return;
+        if(cardUnion&&!boxesOverlap(box,cardUnion,240))return;
+        boxes.push(box);
     });
-    return unionPaddedBoxes(boxes,pad==null?28:pad,22);
+    return unionPaddedBoxes(boxes,pad==null?40:pad,22);
 }
 
 function codeCanvasTransformStyle(transform){
@@ -6479,11 +6574,12 @@ function codeCanvasTransformStyle(transform){
 
 function codeCardAnchorStyle(node,size){
     size=size||codeCardSize(null);
-    if(!node||!isFinite(node.x)||!isFinite(node.y))return{visibility:'hidden',left:'0px',top:'0px'};
+    var xy=liveGraphNodeXY(node);
+    if(!xy)return{visibility:'hidden',left:'0px',top:'0px'};
     return{
         visibility:'visible',
-        left:(node.x-size.width/2)+'px',
-        top:(node.y-size.height/2)+'px'
+        left:(xy.x-size.width/2)+'px',
+        top:(xy.y-size.height/2)+'px'
     };
 }
 
@@ -7492,6 +7588,8 @@ function App(){
     var codeCanvasRef=useRef(null);
     var codeSourceInFlightRef=useRef(Object.create(null));
     var updateHullsRef=useRef(null);
+    var codeFolderCentersRef=useRef(Object.create(null));
+    var codeCardUserSizeRef=useRef(Object.create(null));
     var analysisHydrationIdRef=useRef('');
     var _openedCards=useState([]),openedCodePaths=_openedCards[0],setOpenedCodePaths=_openedCards[1];
     var _sourceFailed=useState(Object.create(null)),codeSourceFailed=_sourceFailed[0],setCodeSourceFailed=_sourceFailed[1];
@@ -9055,8 +9153,11 @@ function App(){
     }
     function currentCodeCardSizes(){
         var prefs=currentCodeCardPrefs();
+        var overrides=codeCardUserSizeRef.current;
         var sizes=Object.create(null);
-        codeViewFiles.forEach(function(file){sizes[file.path]=codeCardSize(file,prefs);});
+        codeViewFiles.forEach(function(file){
+            sizes[file.path]=applyCodeCardUserSize(codeCardSize(file,prefs),overrides[file.path]);
+        });
         codeCardSizesRef.current=sizes;
         return sizes;
     }
@@ -9094,10 +9195,12 @@ function App(){
         if(!sim||graphConfig.vizType!=='code')return;
         var sizes=currentCodeCardSizes();
         var placements=codeCardPlacementRef.current||Object.create(null);
+        var centers=codeFolderCentersRef.current||Object.create(null);
+        var placeOpts={pinnedPaths:codeCardUserPinnedRef.current,centers:centers,gapY:64};
         codeViewFiles.forEach(function(file){
             if(codeCardUserPinnedRef.current.has(file.path)&&placements[file.path]){
                 var live=graphNodesByIdRef.current[file.path];
-                var size=sizes[file.path]||codeCardSize(file,currentCodeCardPrefs());
+                var size=sizes[file.path]||applyCodeCardUserSize(codeCardSize(file,currentCodeCardPrefs()),codeCardUserSizeRef.current[file.path]);
                 if(live&&isFinite(live.fx)&&isFinite(live.fy)){
                     placements[file.path]={
                         left:live.fx-size.width/2,
@@ -9111,13 +9214,11 @@ function App(){
                     return;
                 }
             }
-            placements=appendCodeCardPlacement(placements,file,sizes[file.path]||codeCardSize(file,currentCodeCardPrefs()),{
-                pinnedPaths:codeCardUserPinnedRef.current
-            });
+            placements=appendCodeCardPlacement(placements,file,sizes[file.path]||applyCodeCardUserSize(codeCardSize(file,currentCodeCardPrefs()),codeCardUserSizeRef.current[file.path]),placeOpts);
         });
         var keep=codeCardPlacementKeepSet(openedCodePaths,codeViewFiles);
         var departed=pruneCodeCardPlacements(placements,keep);
-        placements=reflowUnpinnedCodeCards(placements,codeCardUserPinnedRef.current);
+        placements=reflowUnpinnedCodeCards(placements,codeCardUserPinnedRef.current,placeOpts);
         codeCardPlacementRef.current=placements;
         sim.nodes().forEach(function(node){
             var pos=placements[node.id];
@@ -9143,6 +9244,7 @@ function App(){
     function placeRemainingCodeNodes(){
         var sim=simRef.current;
         if(!sim)return;
+        parkLeftoverCodeNodes(sim.nodes(),codeCardPathsRef.current,codeFolderCentersRef.current);
         unburyNodesFromCards(sim.nodes(),codeCardPathsRef.current,codeCardSizesRef.current);
         refreshCodeCardForces();
         redrawGraphLinksAndNodes();
@@ -9233,6 +9335,9 @@ function App(){
         var centers={};
         folders.forEach(function(f,i){centers[f]={x:(i%cols+1)*cw,y:(Math.floor(i/cols)+1)*ch};});
         var keepReadable=graphConfig.vizType==='code';
+        if(keepReadable){
+            codeFolderCentersRef.current=graphFolderCenters(folders,w,h,{minCellW:CODE_CARD_WIDTH+220,minCellH:360});
+        }
         var sceneKey=codeViewSceneKey(data,folderFilter,graphConfig.vizType,currentAnalysisSource());
         if(sceneKey!==codeViewSceneRef.current){
             codeViewSceneRef.current=sceneKey;
@@ -10958,17 +11063,9 @@ function App(){
     }
     function renderCodeViewPrefs(){
         if(graphConfig.vizType!=='code')return null;
-        return React.createElement('div',{className:'color-by code-view-prefs',role:'group','aria-label':'Code view options'},
-            React.createElement('div',{className:'code-view-pref-row'},
-                React.createElement('span',{className:'color-by-label'},'Height'),
-                React.createElement('button',{type:'button',className:'color-by-btn'+(!codeViewExpand?' active':''),onClick:function(){setCodeViewExpand(false);}},'Scroll'),
-                React.createElement('button',{type:'button',className:'color-by-btn'+(codeViewExpand?' active':''),onClick:function(){setCodeViewExpand(true);}},'Expand')
-            ),
-            React.createElement('div',{className:'code-view-pref-row'},
-                React.createElement('span',{className:'color-by-label'},'Wrap'),
-                React.createElement('button',{type:'button',className:'color-by-btn'+(codeViewWrap?' active':''),onClick:function(){setCodeViewWrap(true);}},'On'),
-                React.createElement('button',{type:'button',className:'color-by-btn'+(!codeViewWrap?' active':''),onClick:function(){setCodeViewWrap(false);}},'Off')
-            )
+        return React.createElement('div',{className:'color-by code-view-prefs',role:'toolbar','aria-label':'Code view options'},
+            React.createElement('button',{type:'button',className:'color-by-btn'+(codeViewExpand?' active':''),'aria-pressed':codeViewExpand?'true':'false',onClick:function(){setCodeViewExpand(!codeViewExpand);}},'Expand All'),
+            React.createElement('button',{type:'button',className:'color-by-btn'+(codeViewWrap?' active':''),'aria-pressed':codeViewWrap?'true':'false',onClick:function(){setCodeViewWrap(!codeViewWrap);}},'Wrap Text')
         );
     }
     function renderSidebarEmpty(title,desc){
@@ -11090,6 +11187,61 @@ function App(){
         window.addEventListener('pointerup',onUp);
         window.addEventListener('pointercancel',onUp);
     }
+    function beginCodeCardResize(e,file,edge){
+        if(e.pointerType==='mouse'&&e.button!==0)return;
+        e.stopPropagation();
+        e.preventDefault();
+        var node=graphNodesByIdRef.current[file.path];
+        var size=codeCardSizesRef.current[file.path]||applyCodeCardUserSize(codeCardSize(file,currentCodeCardPrefs()),codeCardUserSizeRef.current[file.path]);
+        if(!node)return;
+        var transform=codeZoomTransformRef.current||{k:1,x:0,y:0};
+        var k=Number(transform.k);
+        if(!isFinite(k)||k<=0)k=1;
+        var startX=e.clientX,startY=e.clientY,startW=size.width,startH=size.height;
+        var left=node.x-size.width/2,top=node.y-size.height/2,moved=false;
+        function writeSize(nextSize){
+            codeCardUserSizeRef.current[file.path]={width:nextSize.width,height:nextSize.height};
+            codeCardSizesRef.current[file.path]=applyCodeCardUserSize(codeCardSize(file,currentCodeCardPrefs()),nextSize);
+            var live=codeCardSizesRef.current[file.path];
+            node.x=node.fx=left+live.width/2;
+            node.y=node.fy=top+live.height/2;
+            var prev=codeCardPlacementRef.current[file.path]||{};
+            codeCardPlacementRef.current[file.path]={
+                left:left,
+                top:top,
+                x:node.fx,
+                y:node.fy,
+                width:live.width,
+                height:live.height,
+                folder:file.folder||prev.folder||'root'
+            };
+        }
+        function onMove(ev){
+            var delta=codeCardResizeDelta(ev.clientX,ev.clientY,startX,startY,startW,startH,k,edge);
+            if(Math.abs(delta.dx)+Math.abs(delta.dy)>2){
+                moved=true;
+                codeCardUserPinnedRef.current.add(file.path);
+            }
+            writeSize(clampCodeCardResize(delta.width,delta.height,currentCodeCardPrefs()));
+            syncCodeCards();
+            redrawGraphLinksAndNodes();
+            if(updateHullsRef.current)updateHullsRef.current();
+        }
+        function onUp(){
+            window.removeEventListener('pointermove',onMove);
+            window.removeEventListener('pointerup',onUp);
+            window.removeEventListener('pointercancel',onUp);
+            if(moved){
+                codeCardUserPinnedRef.current.add(file.path);
+                syncCodeCards();
+                redrawGraphLinksAndNodes();
+                if(updateHullsRef.current)updateHullsRef.current();
+            }
+        }
+        window.addEventListener('pointermove',onMove);
+        window.addEventListener('pointerup',onUp);
+        window.addEventListener('pointercancel',onUp);
+    }
     function renderCodeFileCard(file,isPrimary){
         if(!file)return null;
         var sourceState=fileSourceDisplayState(file,canReadLiveFileSource(),codeSourceFailed);
@@ -11119,7 +11271,7 @@ function App(){
             body=React.createElement('div',{className:'empty-desc',style:{padding:'12px'}},message);
         }
         var cardPrefs=currentCodeCardPrefs();
-        var cardSize=codeCardSize(file,cardPrefs);
+        var cardSize=applyCodeCardUserSize(codeCardSize(file,cardPrefs),codeCardUserSizeRef.current[file.path]);
         var pills=isPrimary?codeCardSymbolPills(file,data?data.connections:[],cardPrefs):[];
         return React.createElement('div',{key:file.path,'data-code-card':file.path,className:'code-card'+(isPrimary?' primary':' linked')+(cardSize.clipped?' clipped':'')+(cardSize.expand?' expand':'')+(cardSize.wrap?' wrap':''),onClick:function(e){
             var taken=consumeCodeCardClick(codeCardIgnoreClickRef.current);
@@ -11155,7 +11307,10 @@ function App(){
                         setActiveSymbol(function(prev){return prev===pill.name?null:pill.name;});
                     }
                 },pill.name);
-            })
+            }),
+            React.createElement('div',{className:'code-card-resize code-card-resize-e','data-code-resize':'e',onPointerDown:function(e){beginCodeCardResize(e,file,'e');}}),
+            React.createElement('div',{className:'code-card-resize code-card-resize-s','data-code-resize':'s',onPointerDown:function(e){beginCodeCardResize(e,file,'s');}}),
+            React.createElement('div',{className:'code-card-resize code-card-resize-se','data-code-resize':'se',onPointerDown:function(e){beginCodeCardResize(e,file,'se');}})
         );
     }
     function renderCodeView(){

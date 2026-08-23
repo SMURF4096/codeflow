@@ -579,14 +579,67 @@ test('opened code cards auto-align by directory', () => {
   assert.equal(boxes['src/a.js'].x, 580);
   const fromBox = context.codeFolderCardBounds([{ id: 'src/a.js', x: 0, y: 0 }], sizes, 10, boxes);
   assert.ok(fromBox.x > 500);
-  const union = context.codeFolderHullBounds(
+  const nearUnion = context.codeFolderHullBounds(
+    [{ id: 'src/a.js', x: 800, y: 400 }],
+    [{ id: 'src/near.js', x: 820, y: 390 }],
+    sizes,
+    10
+  );
+  assert.ok(nearUnion.width > 320);
+  const farUnion = context.codeFolderHullBounds(
     [{ id: 'src/a.js', x: 800, y: 400 }],
     [{ id: 'src/old.js', x: 220, y: 100 }],
     sizes,
     10
   );
-  assert.ok(union.width > 320);
-  assert.ok(union.x < 220);
+  assert.ok(farUnion.x > 400);
+  const dragged = context.codeFolderHullBounds([{ id: 'src/a.js', x: 1400, y: 900 }], [], sizes, 10);
+  assert.ok(dragged.x > farUnion.x);
+  assert.ok(dragged.y > farUnion.y);
+  const hullsBefore = context.codeFolderHullsByFolder({
+    src: { cards: [{ id: 'src/a.js', x: 800, y: 400 }], leftover: [] },
+    lib: { cards: [{ id: 'lib/c.js', x: 200, y: 100 }], leftover: [] }
+  }, sizes, 10);
+  const hullsAfter = context.codeFolderHullsByFolder({
+    src: { cards: [{ id: 'src/a.js', x: 1400, y: 900 }], leftover: [] },
+    lib: { cards: [{ id: 'lib/c.js', x: 200, y: 100 }], leftover: [] }
+  }, sizes, 10);
+  assert.ok(hullsAfter.src.x > hullsBefore.src.x);
+  assert.equal(hullsAfter.lib.x, hullsBefore.lib.x);
+  assert.equal(hullsAfter.lib.y, hullsBefore.lib.y);
+});
+
+test('Code folder centers space hulls like Graph and park leftover nodes', () => {
+  const centers = context.graphFolderCenters(['src', 'lib', 'test', 'docs'], 800, 600, { minCellW: 660, minCellH: 360 });
+  assert.ok(centers.src);
+  assert.ok(centers.lib);
+  assert.ok(Math.abs(centers.src.x - centers.lib.x) >= 200 || Math.abs(centers.src.y - centers.lib.y) >= 200);
+  const nodes = [
+    { id: 'src/a.js', folder: 'src', x: 10, y: 10 },
+    { id: 'lib/b.js', folder: 'lib', x: 10, y: 10 }
+  ];
+  context.parkLeftoverCodeNodes(nodes, new Set(), centers);
+  assert.equal(nodes[0].x, centers.src.x);
+  assert.equal(nodes[1].x, centers.lib.x);
+  const pinned = { id: 'src/c.js', folder: 'src', x: 12, y: 14, fx: 12, fy: 14 };
+  context.parkLeftoverCodeNodes([pinned], new Set(), centers);
+  assert.equal(pinned.x, 12);
+});
+
+test('Code cards can be resized from the right or bottom edge', () => {
+  const base = context.codeCardSize({ content: 'const x = 1;\n' });
+  const grown = context.applyCodeCardUserSize(base, { width: 620, height: 280 });
+  assert.equal(grown.width, 620);
+  assert.equal(grown.height, 280);
+  const clamped = context.clampCodeCardResize(80, 40, {});
+  assert.equal(clamped.width, context.CODE_CARD_MIN_WIDTH);
+  assert.equal(clamped.height, context.CODE_CARD_MIN_HEIGHT);
+  const delta = context.codeCardResizeDelta(140, 160, 100, 100, 440, 200, 1, 'se');
+  assert.equal(delta.width, 480);
+  assert.equal(delta.height, 260);
+  const east = context.codeCardResizeDelta(140, 160, 100, 100, 440, 200, 1, 'e');
+  assert.equal(east.width, 480);
+  assert.equal(east.height, 200);
 });
 
 test('Code camera fits only when it has not been armed yet', () => {
@@ -1189,15 +1242,25 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /className:'color-by'/);
   assert.match(htmlSource, /function renderCodeViewPrefs\(/);
   assert.match(htmlSource, /className:'color-by code-view-prefs'/);
-  assert.match(htmlSource, /setCodeViewExpand\(false\)/);
-  assert.match(htmlSource, /setCodeViewExpand\(true\)/);
-  assert.match(htmlSource, /setCodeViewWrap\(true\)/);
-  assert.match(htmlSource, /setCodeViewWrap\(false\)/);
+  assert.match(htmlSource, /Expand All/);
+  assert.match(htmlSource, /Wrap Text/);
+  assert.match(htmlSource, /setCodeViewExpand\(!codeViewExpand\)/);
+  assert.match(htmlSource, /setCodeViewWrap\(!codeViewWrap\)/);
+  assert.match(htmlSource, /'aria-pressed':codeViewExpand/);
+  assert.match(htmlSource, /'aria-pressed':codeViewWrap/);
   assert.match(htmlSource, /normalizeCodeCardPrefs/);
   assert.match(htmlSource, /codeCardWrapColumns/);
   assert.match(htmlSource, /liveGraphNodeXY/);
   assert.match(htmlSource, /readCodeCardWorldBoxes/);
   assert.match(htmlSource, /codeFolderHullBounds/);
+  assert.match(htmlSource, /codeFolderHullsByFolder/);
+  assert.match(htmlSource, /graphFolderCenters/);
+  assert.match(htmlSource, /parkLeftoverCodeNodes/);
+  assert.match(htmlSource, /beginCodeCardResize/);
+  assert.match(htmlSource, /data-code-resize/);
+  assert.match(htmlSource, /code-card-resize-e/);
+  assert.match(htmlSource, /code-card-resize-s/);
+  assert.match(htmlSource, /applyCodeCardUserSize/);
   assert.match(htmlSource, /liveNodesByFolder/);
   assert.match(htmlSource, /readCodeCardWorldBoxes\(codeCardsLayerRef\.current\)/);
   assert.match(htmlSource, /codeFolderHullBounds\(cardNodes,leftover/);
@@ -1207,6 +1270,7 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /cardSize\.wrap\?' wrap'/);
   assert.match(htmlSource, /\.code-card\.wrap \.file-preview-text/);
   assert.match(htmlSource, /white-space:pre-wrap/);
+  assert.match(htmlSource, /\.code-card\.expand:not\(\.wrap\) \.code-card-body\{overflow-x:auto/);
   assert.doesNotMatch(htmlSource, /sidebar-title'\},'Color By'/);
   assert.doesNotMatch(htmlSource, /sidebar-title'\},'Explorer'/);
 });
