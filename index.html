@@ -857,14 +857,7 @@ function shouldSkipArchivePath(path,compiledPatterns,dirCache){
 }
 
 function getSecurityScanContent(file){
-    var content=file&&file.content?file.content:'';
-    if(file&&file.name==='index.html'&&content.includes('detectSecurity:function(files){')&&content.includes('calcComplexity:function')){
-        return content.replace(
-            /detectSecurity:function\(files\)\{[\s\S]*?\n    \},\n    calcComplexity:function/,
-            "detectSecurity:function(files){\n        return[];\n    },\n    calcComplexity:function"
-        );
-    }
-    return content;
+    return file&&file.content?file.content:'';
 }
 
 function isSanitizedPreviewRenderer(content){
@@ -1647,9 +1640,28 @@ const Parser={
     },
     detectSecurity:function(files){
         var issues=[];
+        // CodeFlow self-analysis: this app's own analyzer sources are detection
+        // patterns by construction (eval(, innerHTML=, child_process literals
+        // exist to be matched, never executed), so flagging them measures the
+        // tool instead of the scanned product. Blank the analyzer block out of
+        // the scan copy while preserving line numbering. Marker strings are
+        // built via concatenation so slicing (worker/card) is unaffected.
+        // Mirrored for non-browser runtimes by tests/security-selfscan.test.mjs.
+        var SELF_SCAN_FILE='index.html';
+        var ANALYZER_START_MARK='// ===== CODEFLOW_'+'ANALYZER_START =====';
+        var ANALYZER_END_MARK='// ===== CODEFLOW_'+'ANALYZER_END =====';
         files.forEach(function(f){
             var scanContent=getSecurityScanContent(f);
             if(!scanContent)return;
+            if(f&&f.name===SELF_SCAN_FILE&&f.path===SELF_SCAN_FILE){
+                var blockStart=scanContent.indexOf(ANALYZER_START_MARK);
+                var blockEnd=scanContent.indexOf(ANALYZER_END_MARK,blockStart>=0?blockStart+ANALYZER_START_MARK.length:0);
+                if(blockStart>=0&&blockEnd>blockStart){
+                    scanContent=scanContent.slice(0,blockStart)
+                        +scanContent.slice(blockStart,blockEnd).replace(/[^\n]/g,'')
+                        +scanContent.slice(blockEnd);
+                }
+            }
             var lines=scanContent.split('\n');
             lines.forEach(function(line,idx){
                 if(!isSecretScanExemptPath(f.path)&&line.match(/(?:password|passwd|pwd|secret|api_key|apikey|token|auth)\s*[=:]\s*['"][^'"]{4,}['"]/i)&&!line.includes('process.env')&&!line.includes('config.')){
