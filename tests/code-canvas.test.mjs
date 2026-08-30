@@ -626,6 +626,203 @@ test('Code folder centers space hulls like Graph and park leftover nodes', () =>
   assert.equal(pinned.x, 12);
 });
 
+test('leftover Code nodes in one folder spread instead of stacking', () => {
+  const grid = context.leftoverCodeNodeGrid(4, 56);
+  assert.equal(grid.length, 4);
+  assert.equal(grid[0].x, grid[1].x - 56);
+  const seen = new Set(grid.map((p) => p.x + ',' + p.y));
+  assert.equal(seen.size, 4);
+  const centers = { src: { x: 400, y: 300 } };
+  const nodes = [
+    { id: 'src/a.js', folder: 'src', x: 10, y: 10 },
+    { id: 'src/b.js', folder: 'src', x: 10, y: 10 },
+    { id: 'src/c.js', folder: 'src', x: 10, y: 10 }
+  ];
+  context.parkLeftoverCodeNodes(nodes, new Set(), centers);
+  const spots = new Set(nodes.map((n) => n.x + ',' + n.y));
+  assert.equal(spots.size, 3);
+  assert.ok(nodes.every((n) => Math.abs(n.x - 400) < 80 && Math.abs(n.y - 300) < 80));
+  assert.equal(nodes[0].fx, nodes[0].x);
+});
+
+test('same-folder leftover siblings translate together', () => {
+  const nodes = [
+    { id: 'src/a.js', folder: 'src', x: 100, y: 80, fx: 100, fy: 80 },
+    { id: 'src/b.js', folder: 'src', x: 160, y: 80, fx: 160, fy: 80 },
+    { id: 'lib/c.js', folder: 'lib', x: 400, y: 80, fx: 400, fy: 80 },
+    { id: 'src/card.js', folder: 'src', x: 200, y: 200, fx: 200, fy: 200 }
+  ];
+  const cards = new Set(['src/card.js']);
+  const siblings = context.translateCodeViewSiblings(nodes, nodes[0], 40, -10, cards);
+  assert.equal(siblings.length, 1);
+  assert.equal(siblings[0].id, 'src/b.js');
+  assert.equal(nodes[1].x, 200);
+  assert.equal(nodes[1].y, 70);
+  assert.equal(nodes[2].x, 400);
+  assert.equal(nodes[3].x, 200);
+});
+
+test('last-dragged Code card wins the stack order', () => {
+  assert.deepEqual(J(context.raiseCodeCardStack(['a.js', 'b.js'], 'a.js')), ['b.js', 'a.js']);
+  assert.equal(context.codeCardZIndex(['b.js', 'a.js'], 'a.js'), 3);
+  assert.equal(context.codeCardZIndex(['b.js', 'a.js'], 'b.js'), 2);
+  assert.equal(context.codeCardZIndex(['b.js', 'a.js'], 'missing.js'), 1);
+  const a = { getAttribute: () => 'a.js', style: {} };
+  const b = { getAttribute: () => 'b.js', style: {} };
+  const layer = { querySelectorAll: () => [a, b] };
+  assert.equal(context.applyCodeCardStackOrder(layer, ['b.js', 'a.js']), 2);
+  assert.equal(a.style.zIndex, '3');
+  assert.equal(b.style.zIndex, '2');
+});
+
+test('dropped Code cards bump off other cards and leftover hulls move aside', () => {
+  const sizes = {
+    'src/a.js': { width: 200, height: 120 },
+    'src/b.js': { width: 200, height: 120 }
+  };
+  const cards = new Set(['src/a.js', 'src/b.js']);
+  const stacked = [
+    { id: 'src/a.js', folder: 'src', x: 100, y: 80, fx: 100, fy: 80 },
+    { id: 'src/b.js', folder: 'src', x: 110, y: 85, fx: 110, fy: 85 }
+  ];
+  context.bumpOverlappingCodeCards(stacked, 'src/b.js', cards, sizes, 20);
+  const aBox = context.nodeWorldBox(stacked[0], sizes['src/a.js']);
+  const bBox = context.nodeWorldBox(stacked[1], sizes['src/b.js']);
+  assert.equal(context.boxesOverlap(aBox, bBox, 20), false);
+
+  const buried = [
+    { id: 'src/card.js', folder: 'src', x: 200, y: 200, fx: 200, fy: 200 },
+    { id: 'src/left.js', folder: 'src', x: 200, y: 200, fx: 200, fy: 200 },
+    { id: 'src/also.js', folder: 'src', x: 220, y: 200, fx: 220, fy: 200 }
+  ];
+  const cardPaths = new Set(['src/card.js']);
+  const cardSizes = { 'src/card.js': { width: 200, height: 140 } };
+  context.settleCodeViewAfterDrag(buried, cardPaths, cardSizes, 'src/card.js');
+  const cardBox = context.cardWorldBox(buried[0], cardSizes);
+  buried.slice(1).forEach((node) => {
+    const leftover = { x: node.x - 16, y: node.y - 16, width: 32, height: 32 };
+    assert.equal(context.boxesOverlap(cardBox, leftover, 20), false);
+  });
+  assert.ok(Math.abs(buried[1].x - buried[2].x) >= 20 || Math.abs(buried[1].y - buried[2].y) >= 20);
+
+  const tall = [
+    { id: 'src/big.js', folder: 'src', x: 200, y: 400, fx: 200, fy: 400 },
+    { id: 'src/under.js', folder: 'src', x: 200, y: 900, fx: 200, fy: 900 }
+  ];
+  const tallSizes = { 'src/big.js': { width: 200, height: 1200 } };
+  const tallCards = new Set(['src/big.js']);
+  context.settleCodeViewAfterDrag(tall, tallCards, tallSizes, 'src/big.js');
+  const tallBox = context.cardWorldBox(tall[0], tallSizes);
+  const under = { x: tall[1].x - 16, y: tall[1].y - 16, width: 32, height: 32 };
+  assert.equal(context.boxesOverlap(tallBox, under, 20), false);
+  assert.ok(context.leftoverHullObstacles(tall, tallCards).length >= 1);
+});
+
+test('cardWorldBox keeps snapshot size but follows a live node after bump', () => {
+  const node = { id: 'src/b.js', x: 321, y: 50, fx: 321, fy: 50 };
+  const sizes = { 'src/b.js': { width: 180, height: 90 } };
+  const stale = { 'src/b.js': { x: 120, y: 0, width: 200, height: 100 } };
+  const live = context.cardWorldBox(node, sizes, stale);
+  assert.deepEqual(J(live), { x: 221, y: 0, width: 200, height: 100 });
+  const same = context.cardWorldBox(node, sizes, {
+    'src/b.js': { x: 221, y: 0, width: 200, height: 100 }
+  });
+  assert.deepEqual(J(same), { x: 221, y: 0, width: 200, height: 100 });
+});
+
+test('settleCodeViewAfterDrag uses bumped card coords when boxesByPath is stale', () => {
+  const sizes = {
+    'src/a.js': { width: 200, height: 100 },
+    'src/b.js': { width: 200, height: 100 }
+  };
+  const cards = new Set(['src/a.js', 'src/b.js']);
+  const cardA = { id: 'src/a.js', folder: 'src', x: 100, y: 50, fx: 100, fy: 50 };
+  const cardB = { id: 'src/b.js', folder: 'src', x: 220, y: 50, fx: 220, fy: 50 };
+  const leftover = { id: 'lib/c.js', folder: 'lib', x: 450, y: 50, fx: 450, fy: 50 };
+  const staleBoxes = {
+    'src/a.js': { x: 0, y: 0, width: 200, height: 100 },
+    'src/b.js': { x: 120, y: 0, width: 200, height: 100 }
+  };
+  const leftoverStartBox = { x: leftover.x - 22, y: leftover.y - 22, width: 44, height: 44 };
+  assert.equal(context.boxesOverlap(staleBoxes['src/b.js'], leftoverStartBox, 40), false);
+  const beforeB = { x: cardB.x, y: cardB.y };
+  context.settleCodeViewAfterDrag([cardA, cardB, leftover], cards, sizes, 'src/b.js', {
+    boxesByPath: staleBoxes,
+    cardGap: 20,
+    hullPad: 40,
+    nodePad: 48
+  });
+  assert.notDeepEqual({ x: cardB.x, y: cardB.y }, beforeB);
+  const bumpedBox = context.nodeWorldBox(cardB, sizes['src/b.js']);
+  const leftoverBox = { x: leftover.x - 22, y: leftover.y - 22, width: 44, height: 44 };
+  assert.equal(context.boxesOverlap(bumpedBox, leftoverBox, 0), false);
+});
+
+test('leftoverSpatialCellKey buckets leftover centers into coarse cells', () => {
+  assert.equal(context.leftoverSpatialCellKey(10, 10, 40), '0\t0');
+  assert.equal(context.leftoverSpatialCellKey(39.9, 0, 40), '0\t0');
+  assert.equal(context.leftoverSpatialCellKey(40, 0, 40), '1\t0');
+  assert.equal(context.leftoverSpatialCellKey(-1, -1, 40), '-1\t-1');
+});
+
+test('leftoverSeparationBuckets groups leftover nodes by spatial cell', () => {
+  const leftovers = [
+    { id: 'a', x: 5, y: 5 },
+    { id: 'b', x: 8, y: 6 },
+    { id: 'c', x: 80, y: 5 }
+  ];
+  const buckets = context.leftoverSeparationBuckets(leftovers, 40);
+  assert.deepEqual(J(buckets['0\t0']), [0, 1]);
+  assert.deepEqual(J(buckets['2\t0']), [2]);
+});
+
+test('leftoverSeparationNeighbors pushes only overlapping leftover pairs', () => {
+  const a = { id: 'src/a.js', x: 100, y: 80, fx: 100, fy: 80 };
+  const b = { id: 'src/b.js', x: 102, y: 80, fx: 102, fy: 80 };
+  const far = { id: 'lib/far.js', x: 800, y: 80, fx: 800, fy: 80 };
+  assert.equal(context.leftoverSeparationNeighbors(a, b, 36), true);
+  assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= 36);
+  assert.equal(context.leftoverSeparationNeighbors(a, far, 36), false);
+  assert.equal(far.x, 800);
+});
+
+test('separateLeftoverCodeNodes still separates nearby leftovers after spatial bucketing', () => {
+  const a = { id: 'src/a.js', folder: 'src', x: 100, y: 80, fx: 100, fy: 80 };
+  const b = { id: 'src/b.js', folder: 'src', x: 102, y: 80, fx: 102, fy: 80 };
+  const far = { id: 'lib/far.js', folder: 'lib', x: 800, y: 80, fx: 800, fy: 80 };
+  context.separateLeftoverCodeNodes([a, b, far], new Set(), 36);
+  assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= 36);
+  assert.equal(far.x, 800);
+  assert.equal(far.y, 80);
+});
+
+test('separateLeftoverCodeNodes leaves a sparse leftover field in place', () => {
+  const leftovers = [];
+  for (let col = 0; col < 8; col += 1) {
+    leftovers.push({ id: `src/n${col}.js`, folder: 'src', x: col * 200, y: 40, fx: col * 200, fy: 40 });
+  }
+  const before = leftovers.map((node) => ({ x: node.x, y: node.y }));
+  context.separateLeftoverCodeNodes(leftovers, new Set(), 36);
+  leftovers.forEach((node, index) => {
+    assert.equal(node.x, before[index].x);
+    assert.equal(node.y, before[index].y);
+  });
+});
+
+test('expensive Code layout waits until drag release', () => {
+  assert.equal(context.codeViewDragRefresh('move'), false);
+  assert.equal(context.codeViewDragRefresh('release'), true);
+  assert.equal(context.codeViewDragRefresh('start'), false);
+  const card = {
+    getAttribute: () => 'src/a.js',
+    style: { left: '0px', top: '0px' }
+  };
+  const layer = { querySelectorAll: () => [card] };
+  assert.equal(context.applyCodeCardDragFrame(layer, 'src/a.js', { x: 400, y: 300 }, { width: 200, height: 100 }), true);
+  assert.equal(card.style.left, '300px');
+  assert.equal(card.style.top, '250px');
+});
+
 test('Code cards can be resized from the right or bottom edge', () => {
   const base = context.codeCardSize({ content: 'const x = 1;\n' });
   const grown = context.applyCodeCardUserSize(base, { width: 620, height: 280 });
@@ -1256,6 +1453,24 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /codeFolderHullsByFolder/);
   assert.match(htmlSource, /graphFolderCenters/);
   assert.match(htmlSource, /parkLeftoverCodeNodes/);
+  assert.match(htmlSource, /leftoverCodeNodeGrid/);
+  assert.match(htmlSource, /codeViewSiblingNodes/);
+  assert.match(htmlSource, /translateCodeViewSiblings/);
+  assert.match(htmlSource, /settleCodeViewAfterDrag/);
+  assert.match(htmlSource, /codeViewDragRefresh\('move'\)/);
+  assert.match(htmlSource, /codeViewDragRefresh\('release'\)/);
+  assert.match(htmlSource, /raiseCodeCardStack/);
+  assert.match(htmlSource, /applyCodeCardStackOrder/);
+  assert.match(htmlSource, /applyCodeCardDragFrame/);
+  assert.match(htmlSource, /bumpOverlappingCodeCards/);
+  assert.match(htmlSource, /nudgeLeftoverGroupsFromCards/);
+  assert.match(htmlSource, /separateLeftoverCodeNodes/);
+  assert.match(htmlSource, /leftoverSpatialCellKey/);
+  assert.match(htmlSource, /leftoverSeparationNeighbors/);
+  assert.match(htmlSource, /leftoverSeparationBuckets/);
+  assert.match(htmlSource, /leftoverHullObstacles/);
+  assert.match(htmlSource, /cardWorldBox/);
+  assert.match(htmlSource, /boxesByPath:readCodeCardWorldBoxes/);
   assert.match(htmlSource, /beginCodeCardResize/);
   assert.match(htmlSource, /data-code-resize/);
   assert.match(htmlSource, /code-card-resize-e/);

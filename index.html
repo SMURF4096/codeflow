@@ -487,7 +487,7 @@ body{font-family:'JetBrains Mono',monospace;background:var(--bg0);color:var(--t0
 .code-sym-chip.import{box-shadow:inset 3px 0 0 #c678dd}
 .code-sym-chip.export{box-shadow:inset 3px 0 0 #98c379}
 .code-sym-chip.var{box-shadow:inset 3px 0 0 #e06c75}
-.code-card{position:absolute;border:1px solid var(--border);border-radius:8px;background:var(--bg0);overflow:visible;display:flex;flex-direction:column;pointer-events:auto;box-shadow:0 10px 28px rgba(0,0,0,0.28);visibility:hidden;user-select:none}
+.code-card{position:absolute;border:1px solid var(--border);border-radius:8px;background:var(--bg0);overflow:visible;display:flex;flex-direction:column;pointer-events:auto;box-shadow:0 10px 28px rgba(0,0,0,0.28);visibility:hidden;user-select:none;z-index:1}
 .code-line-pill{position:absolute;left:100%;margin-left:8px;transform:translateY(-50%);z-index:2;font-size:8px;line-height:14px;padding:0 6px;border-radius:8px;border:1px solid var(--border);background:var(--bg1);color:var(--t1);white-space:nowrap;cursor:pointer;font-family:inherit}
 .code-line-pill:hover,.code-line-pill.active{border-color:var(--acc);color:var(--acc);background:var(--accbg)}
 .code-card.primary{border-color:var(--acc);box-shadow:0 12px 32px rgba(0,0,0,0.34),0 0 0 1px var(--acc)}
@@ -5851,31 +5851,35 @@ function nodeReplacedByCard(path,cardPaths){
     return !!(cardPaths&&cardPaths.has(path));
 }
 
-function unburyNodesFromCards(nodes,cardPaths,sizesByPath,pad){
+function unburyNodesFromCards(nodes,cardPaths,sizesByPath,pad,boxesByPath){
     pad=pad==null?36:pad;
     var list=nodes||[];
     var cards=[];
     list.forEach(function(node){
-        if(!node||!cardPaths||!cardPaths.has(node.id)||!isFinite(node.x)||!isFinite(node.y))return;
-        cards.push(node);
+        if(!node||!cardPaths||!cardPaths.has(node.id))return;
+        var box=cardWorldBox(node,sizesByPath,boxesByPath);
+        if(!box)return;
+        cards.push({node:node,box:box});
     });
     if(!cards.length)return list;
     var pass;
     for(pass=0;pass<4;pass++){
         var moved=false;
         list.forEach(function(node){
-            if(!node||(cardPaths&&cardPaths.has(node.id))||!isFinite(node.x)||!isFinite(node.y))return;
+            if(!node||(cardPaths&&cardPaths.has(node.id)))return;
+            var xy=liveGraphNodeXY(node);
+            if(!xy)return;
             cards.forEach(function(card){
-                var size=(sizesByPath&&sizesByPath[card.id])||codeCardSize(null);
-                var hw=size.width/2+pad,hh=size.height/2+pad;
-                var dx=node.x-card.x,dy=node.y-card.y;
-                if(Math.abs(dx)>=hw||Math.abs(dy)>=hh)return;
-                var left=hw+dx,right=hw-dx,top=hh+dy,bottom=hh-dy;
-                var min=Math.min(left,right,top,bottom);
-                if(min===left)node.x=card.x-hw;
-                else if(min===right)node.x=card.x+hw;
-                else if(min===top)node.y=card.y-hh;
-                else node.y=card.y+hh;
+                var box=card.box;
+                var left=box.x-pad,top=box.y-pad,right=box.x+box.width+pad,bottom=box.y+box.height+pad;
+                if(xy.x<left||xy.x>right||xy.y<top||xy.y>bottom)return;
+                var dLeft=xy.x-left,dRight=right-xy.x,dTop=xy.y-top,dBottom=bottom-xy.y;
+                var min=Math.min(dLeft,dRight,dTop,dBottom);
+                if(min===dLeft)xy.x=left;
+                else if(min===dRight)xy.x=right;
+                else if(min===dTop)xy.y=top;
+                else xy.y=bottom;
+                node.x=xy.x;node.y=xy.y;
                 if(node.fx!=null)node.fx=node.x;
                 if(node.fy!=null)node.fy=node.y;
                 moved=true;
@@ -6174,17 +6178,375 @@ function graphFolderCenters(folders,width,height,options){
     return out;
 }
 
-function parkLeftoverCodeNodes(nodes,cardPaths,centers){
+function leftoverCodeNodeGrid(count,spacing){
+    spacing=spacing==null?56:Number(spacing)||56;
+    count=Math.max(0,Math.floor(Number(count)||0));
+    var out=[];
+    if(count<=0)return out;
+    var cols=Math.max(1,Math.ceil(Math.sqrt(count)));
+    var rows=Math.max(1,Math.ceil(count/cols));
+    var i;
+    for(i=0;i<count;i++){
+        var col=i%cols;
+        var row=Math.floor(i/cols);
+        out.push({
+            x:(col-(cols-1)/2)*spacing,
+            y:(row-(rows-1)/2)*spacing
+        });
+    }
+    return out;
+}
+
+function parkLeftoverCodeNodes(nodes,cardPaths,centers,options){
+    options=options||{};
+    var spacing=options.spacing==null?56:options.spacing;
+    var pin=options.pin!==false;
+    var groups=Object.create(null);
+    var order=[];
     (nodes||[]).forEach(function(node){
         if(!node)return;
         if(cardPaths&&cardPaths.has(node.id))return;
         if(node.fx!=null&&isFinite(Number(node.fx)))return;
-        var c=centers&&centers[node.folder||'root'];
+        var folder=node.folder||'root';
+        if(!groups[folder]){
+            groups[folder]=[];
+            order.push(folder);
+        }
+        groups[folder].push(node);
+    });
+    order.forEach(function(folder){
+        var group=groups[folder];
+        var c=centers&&centers[folder];
         if(!c||!isFinite(c.x)||!isFinite(c.y))return;
-        node.x=c.x;
-        node.y=c.y;
+        var offs=leftoverCodeNodeGrid(group.length,spacing);
+        group.forEach(function(node,i){
+            node.x=c.x+offs[i].x;
+            node.y=c.y+offs[i].y;
+            if(pin){
+                node.fx=node.x;
+                node.fy=node.y;
+            }
+        });
     });
     return nodes;
+}
+
+function codeViewSiblingNodes(nodes,dragged,cardPaths){
+    if(!dragged)return[];
+    var folder=dragged.folder||'root';
+    var out=[];
+    (nodes||[]).forEach(function(node){
+        if(!node||node===dragged||node.id===dragged.id)return;
+        if(cardPaths&&cardPaths.has(node.id))return;
+        if((node.folder||'root')!==folder)return;
+        out.push(node);
+    });
+    return out;
+}
+
+function translateCodeViewSiblings(nodes,dragged,dx,dy,cardPaths){
+    dx=Number(dx)||0;
+    dy=Number(dy)||0;
+    if(!dx&&!dy)return[];
+    var siblings=codeViewSiblingNodes(nodes,dragged,cardPaths);
+    siblings.forEach(function(node){
+        if(isFinite(node.x))node.x+=dx;
+        if(isFinite(node.y))node.y+=dy;
+        if(node.fx!=null&&isFinite(Number(node.fx)))node.fx=node.x;
+        if(node.fy!=null&&isFinite(Number(node.fy)))node.fy=node.y;
+    });
+    return siblings;
+}
+
+function nodeWorldBox(node,size){
+    if(!node||!size)return null;
+    var xy=liveGraphNodeXY(node);
+    if(!xy)return null;
+    var width=Number(size.width)||0;
+    var height=Number(size.height)||0;
+    if(width<=0||height<=0)return null;
+    return{x:xy.x-width/2,y:xy.y-height/2,width:width,height:height};
+}
+
+function cardWorldBox(node,sizesByPath,boxesByPath){
+    if(!node)return null;
+    var size=(sizesByPath&&sizesByPath[node.id])||codeCardSize(null);
+    var live=nodeWorldBox(node,size);
+    var snap=boxesByPath&&boxesByPath[node.id];
+    if(!snap)return live;
+    if(!live)return snap;
+    var liveCx=live.x+live.width/2,liveCy=live.y+live.height/2;
+    var snapCx=snap.x+snap.width/2,snapCy=snap.y+snap.height/2;
+    if(Math.abs(liveCx-snapCx)>0.5||Math.abs(liveCy-snapCy)>0.5){
+        return{x:liveCx-snap.width/2,y:liveCy-snap.height/2,width:snap.width,height:snap.height};
+    }
+    return snap;
+}
+
+function resolveBoxOverlap(box,obstacles,gap){
+    if(!box)return null;
+    gap=gap==null?24:Number(gap)||0;
+    var next={x:box.x,y:box.y,width:box.width,height:box.height};
+    var pass;
+    for(pass=0;pass<8;pass++){
+        var hit=null;
+        (obstacles||[]).forEach(function(obs){
+            if(!hit&&boxesOverlap(next,obs,gap))hit=obs;
+        });
+        if(!hit)break;
+        var slack=gap+1;
+        var right=(hit.x+hit.width+slack)-next.x;
+        var left=next.x+next.width+slack-hit.x;
+        var down=(hit.y+hit.height+slack)-next.y;
+        var up=next.y+next.height+slack-hit.y;
+        if(right<=left&&right<=down&&right<=up)next.x+=right;
+        else if(left<=down&&left<=up)next.x-=left;
+        else if(down<=up)next.y+=down;
+        else next.y-=up;
+    }
+    return next;
+}
+
+function bumpOverlappingCodeCards(nodes,droppedId,cardPaths,sizesByPath,gap){
+    if(!droppedId)return null;
+    var dropped=null;
+    var obstacles=[];
+    (nodes||[]).forEach(function(node){
+        if(!node||!cardPaths||!cardPaths.has(node.id))return;
+        var size=(sizesByPath&&sizesByPath[node.id])||codeCardSize(null);
+        var box=nodeWorldBox(node,size);
+        if(!box)return;
+        if(node.id===droppedId)dropped={node:node,size:size,box:box};
+        else obstacles.push(box);
+    });
+    if(!dropped)return null;
+    var next=resolveBoxOverlap(dropped.box,obstacles,gap);
+    if(!next)return dropped.node;
+    dropped.node.x=dropped.node.fx=next.x+next.width/2;
+    dropped.node.y=dropped.node.fy=next.y+next.height/2;
+    return dropped.node;
+}
+
+function leftoverGroupBox(nodes,pad){
+    var boxes=[];
+    (nodes||[]).forEach(function(node){
+        var xy=liveGraphNodeXY(node);
+        if(!xy)return;
+        boxes.push({x:xy.x-22,y:xy.y-22,width:44,height:44});
+    });
+    return unionPaddedBoxes(boxes,pad==null?16:pad,0);
+}
+
+function leftoverHullObstacles(nodes,cardPaths){
+    var leftoversByFolder=Object.create(null);
+    (nodes||[]).forEach(function(node){
+        if(!node||(cardPaths&&cardPaths.has(node.id)))return;
+        var folder=node.folder||'root';
+        if(!leftoversByFolder[folder])leftoversByFolder[folder]=[];
+        leftoversByFolder[folder].push(node);
+    });
+    var hulls=[];
+    Object.keys(leftoversByFolder).forEach(function(folder){
+        var hull=leftoverGroupBox(leftoversByFolder[folder],16);
+        if(hull)hulls.push(hull);
+    });
+    return hulls;
+}
+
+function nudgeLeftoverGroupsFromCards(nodes,cardPaths,sizesByPath,pad,boxesByPath){
+    pad=pad==null?40:pad;
+    var cards=[];
+    var leftoversByFolder=Object.create(null);
+    (nodes||[]).forEach(function(node){
+        if(!node)return;
+        if(cardPaths&&cardPaths.has(node.id)){
+            var box=cardWorldBox(node,sizesByPath,boxesByPath);
+            if(box)cards.push(box);
+            return;
+        }
+        var folder=node.folder||'root';
+        if(!leftoversByFolder[folder])leftoversByFolder[folder]=[];
+        leftoversByFolder[folder].push(node);
+    });
+    Object.keys(leftoversByFolder).forEach(function(folder){
+        var group=leftoversByFolder[folder];
+        var hull=leftoverGroupBox(group,16);
+        if(!hull)return;
+        var next=resolveBoxOverlap(hull,cards,pad);
+        if(!next)return;
+        var dx=next.x-hull.x;
+        var dy=next.y-hull.y;
+        if(!dx&&!dy)return;
+        group.forEach(function(node){
+            if(isFinite(node.x))node.x+=dx;
+            if(isFinite(node.y))node.y+=dy;
+            if(node.fx!=null)node.fx=node.x;
+            if(node.fy!=null)node.fy=node.y;
+        });
+    });
+    return nodes;
+}
+
+function leftoverSpatialCellKey(x,y,cell){
+    var size=Number(cell);
+    if(!isFinite(size)||size<=0)size=36;
+    return Math.floor((Number(x)||0)/size)+'\t'+Math.floor((Number(y)||0)/size);
+}
+
+function leftoverSeparationNeighbors(a,b,gap){
+    if(!a||!b||a===b)return false;
+    var dx=b.x-a.x,dy=b.y-a.y;
+    var dist=Math.hypot(dx,dy);
+    if(dist>=gap)return false;
+    var push=(gap-(dist||0.01))/2;
+    var nx=dist<1e-6?1:dx/dist;
+    var ny=dist<1e-6?0:dy/dist;
+    a.x-=nx*push;
+    a.y-=ny*push;
+    b.x+=nx*push;
+    b.y+=ny*push;
+    if(a.fx!=null)a.fx=a.x;
+    if(a.fy!=null)a.fy=a.y;
+    if(b.fx!=null)b.fx=b.x;
+    if(b.fy!=null)b.fy=b.y;
+    return true;
+}
+
+function leftoverSeparationBuckets(leftovers,cell){
+    var buckets=Object.create(null);
+    (leftovers||[]).forEach(function(node,i){
+        var key=leftoverSpatialCellKey(node.x,node.y,cell);
+        if(!buckets[key])buckets[key]=[];
+        buckets[key].push(i);
+    });
+    return buckets;
+}
+
+function separateLeftoverCodeNodes(nodes,cardPaths,gap){
+    gap=gap==null?36:Number(gap)||36;
+    var leftovers=[];
+    (nodes||[]).forEach(function(node){
+        if(!node||(cardPaths&&cardPaths.has(node.id)))return;
+        if(!isFinite(node.x)||!isFinite(node.y))return;
+        leftovers.push(node);
+    });
+    if(leftovers.length<2)return nodes;
+    var cell=Math.max(gap,1);
+    var pass,i,ox,oy;
+    for(pass=0;pass<6;pass++){
+        var buckets=leftoverSeparationBuckets(leftovers,cell);
+        var moved=false;
+        for(i=0;i<leftovers.length;i++){
+            var a=leftovers[i];
+            var cx=Math.floor(a.x/cell);
+            var cy=Math.floor(a.y/cell);
+            for(ox=-1;ox<=1;ox++){
+                for(oy=-1;oy<=1;oy++){
+                    var group=buckets[cx+ox+'\t'+(cy+oy)];
+                    if(!group)continue;
+                    group.forEach(function(j){
+                        if(j<=i)return;
+                        if(leftoverSeparationNeighbors(a,leftovers[j],gap))moved=true;
+                    });
+                }
+            }
+        }
+        if(!moved)break;
+    }
+    return nodes;
+}
+
+function settleCodeViewAfterDrag(nodes,cardPaths,sizesByPath,droppedId,options){
+    options=options||{};
+    var boxesByPath=options.boxesByPath||null;
+    var dropped=null;
+    if(droppedId){
+        (nodes||[]).some(function(node){
+            if(node&&node.id===droppedId){dropped=node;return true;}
+            return false;
+        });
+    }
+    function applyDroppedDelta(before){
+        if(!dropped||!before)return;
+        var dx=dropped.x-before.x,dy=dropped.y-before.y;
+        if(dx||dy)translateCodeViewSiblings(nodes,dropped,dx,dy,cardPaths);
+    }
+    var before=dropped?liveGraphNodeXY(dropped):null;
+    if(dropped&&cardPaths&&cardPaths.has(dropped.id)){
+        bumpOverlappingCodeCards(nodes,dropped.id,cardPaths,sizesByPath,options.cardGap==null?24:options.cardGap);
+        applyDroppedDelta(before);
+        before=liveGraphNodeXY(dropped);
+    }
+    var pass;
+    for(pass=0;pass<3;pass++){
+        nudgeLeftoverGroupsFromCards(nodes,cardPaths,sizesByPath,options.hullPad==null?40:options.hullPad,boxesByPath);
+    }
+    unburyNodesFromCards(nodes,cardPaths,sizesByPath,options.nodePad==null?48:options.nodePad,boxesByPath);
+    if(dropped&&cardPaths&&cardPaths.has(dropped.id)){
+        before=liveGraphNodeXY(dropped);
+        var hulls=leftoverHullObstacles(nodes,cardPaths);
+        var box=cardWorldBox(dropped,sizesByPath,boxesByPath);
+        if(box&&hulls.length){
+            var next=resolveBoxOverlap(box,hulls,options.hullPad==null?40:options.hullPad);
+            if(next&&(next.x!==box.x||next.y!==box.y)){
+                dropped.x=dropped.fx=next.x+next.width/2;
+                dropped.y=dropped.fy=next.y+next.height/2;
+                applyDroppedDelta(before);
+            }
+        }
+    }
+    separateLeftoverCodeNodes(nodes,cardPaths,options.nodeGap==null?40:options.nodeGap);
+    return nodes;
+}
+
+function codeViewDragRefresh(phase){
+    return phase==='release';
+}
+
+function raiseCodeCardStack(order,path){
+    var next=[];
+    (order||[]).forEach(function(id){
+        if(id&&id!==path)next.push(id);
+    });
+    if(path)next.push(path);
+    return next;
+}
+
+function codeCardZIndex(order,path){
+    var i=(order||[]).indexOf(path);
+    return i<0?1:i+2;
+}
+
+function applyCodeCardStackOrder(layer,order){
+    if(!layer||!layer.querySelectorAll)return 0;
+    var cards=layer.querySelectorAll('[data-code-card]');
+    var n=0;
+    Array.prototype.forEach.call(cards,function(card){
+        var path=card.getAttribute('data-code-card');
+        card.style.zIndex=String(codeCardZIndex(order,path));
+        n++;
+    });
+    return n;
+}
+
+function findCodeCardElement(layer,path){
+    if(!layer||!layer.querySelectorAll||!path)return null;
+    var cards=layer.querySelectorAll('[data-code-card]');
+    var i;
+    for(i=0;i<cards.length;i++){
+        if(cards[i].getAttribute('data-code-card')===path)return cards[i];
+    }
+    return null;
+}
+
+function applyCodeCardDragFrame(layer,path,node,size){
+    var card=findCodeCardElement(layer,path);
+    if(!card)return false;
+    var style=codeCardAnchorStyle(node,size);
+    card.style.visibility=style.visibility;
+    card.style.left=style.left;
+    card.style.top=style.top;
+    return style.visibility==='visible';
 }
 
 function boxesOverlap(a,b,gap){
@@ -6805,7 +7167,7 @@ function codeCardFitBounds(nodes,sizesByPath,cardPaths){
     return {minX:minX,minY:minY,maxX:maxX,maxY:maxY,cx:(minX+maxX)/2,cy:(minY+maxY)/2};
 }
 
-function applyCodeCardLayout(layer,nodesById,transform,sizesByPath){
+function applyCodeCardLayout(layer,nodesById,transform,sizesByPath,stackOrder){
     if(!layer)return{placed:0,titleScale:1};
     layer.style.transform=codeCanvasTransformStyle(transform);
     var k=transform&&isFinite(Number(transform.k))?Number(transform.k):1;
@@ -6821,6 +7183,7 @@ function applyCodeCardLayout(layer,nodesById,transform,sizesByPath){
         card.style.top=style.top;
         card.style.width=size.width+'px';
         card.style.height=size.height+'px';
+        if(stackOrder)card.style.zIndex=String(codeCardZIndex(stackOrder,path));
         if(card.classList){
             if(size.clipped&&card.classList.add)card.classList.add('clipped');
             else if(card.classList.remove)card.classList.remove('clipped');
@@ -7699,6 +8062,7 @@ function App(){
     var updateHullsRef=useRef(null);
     var codeFolderCentersRef=useRef(Object.create(null));
     var codeCardUserSizeRef=useRef(Object.create(null));
+    var codeCardStackRef=useRef([]);
     var analysisHydrationIdRef=useRef('');
     var _openedCards=useState([]),openedCodePaths=_openedCards[0],setOpenedCodePaths=_openedCards[1];
     var _sourceFailed=useState(Object.create(null)),codeSourceFailed=_sourceFailed[0],setCodeSourceFailed=_sourceFailed[1];
@@ -9275,7 +9639,13 @@ function App(){
     }
 
     function syncCodeCards(){
-        applyCodeCardLayout(codeCardsLayerRef.current,graphNodesByIdRef.current,codeZoomTransformRef.current,codeCardSizesRef.current);
+        applyCodeCardLayout(codeCardsLayerRef.current,graphNodesByIdRef.current,codeZoomTransformRef.current,codeCardSizesRef.current,codeCardStackRef.current);
+    }
+    function redrawMovedGraphNodes(movedIds){
+        if(!nodesRef.current||!movedIds||!movedIds.length)return;
+        var seen=Object.create(null);
+        movedIds.forEach(function(node){if(node&&node.id)seen[node.id]=true;});
+        nodesRef.current.filter(function(d){return d&&seen[d.id];}).attr('transform',function(d){return'translate('+d.x+','+d.y+')';});
     }
 
     function graphLinkPath(d){
@@ -9371,7 +9741,9 @@ function App(){
         var sim=simRef.current;
         if(!sim)return;
         parkLeftoverCodeNodes(sim.nodes(),codeCardPathsRef.current,codeFolderCentersRef.current);
-        unburyNodesFromCards(sim.nodes(),codeCardPathsRef.current,codeCardSizesRef.current);
+        settleCodeViewAfterDrag(sim.nodes(),codeCardPathsRef.current,codeCardSizesRef.current,null,{
+            boxesByPath:readCodeCardWorldBoxes(codeCardsLayerRef.current)
+        });
         refreshCodeCardForces();
         redrawGraphLinksAndNodes();
     }
@@ -9583,15 +9955,28 @@ function App(){
         linksRef.current=link;
         var node=nodeLayer.selectAll('g').data(nodes).join('g').style('cursor','pointer');
         nodesRef.current=node;
+        var codeNodeDragPrev=Object.create(null);
         node.call(d3.drag().on('start',function(e,d){
             d.fx=d.x;d.fy=d.y;
-            if(keepReadable)return;
+            if(keepReadable){
+                codeNodeDragPrev[d.id]={x:d.x,y:d.y};
+                return;
+            }
             if(!e.active)sim.alphaTarget(0.1).restart();
         }).on('drag',function(e,d){
             d.fx=e.x;d.fy=e.y;d.x=e.x;d.y=e.y;
             if(keepReadable){
-                redrawGraphLinksAndNodes();
-                if(updateHullsRef.current)updateHullsRef.current();
+                var prev=codeNodeDragPrev[d.id]||{x:d.x,y:d.y};
+                var dx=d.x-prev.x,dy=d.y-prev.y;
+                codeNodeDragPrev[d.id]={x:d.x,y:d.y};
+                var siblings=translateCodeViewSiblings(sim.nodes(),d,dx,dy,codeCardPathsRef.current);
+                if(codeViewDragRefresh('move')){
+                    redrawGraphLinksAndNodes();
+                    if(updateHullsRef.current)updateHullsRef.current();
+                }else{
+                    redrawMovedGraphNodes([d].concat(siblings));
+                }
+                return;
             }
         }).on('end',function(e,d){
             if(!keepReadable){
@@ -9600,8 +9985,15 @@ function App(){
                 return;
             }
             d.fx=d.x;d.fy=d.y;
+            delete codeNodeDragPrev[d.id];
             if(codeCardPathsRef.current.has(d.id))codeCardUserPinnedRef.current.add(d.id);
-            if(updateHullsRef.current)updateHullsRef.current();
+            if(codeViewDragRefresh('release')){
+                settleCodeViewAfterDrag(sim.nodes(),codeCardPathsRef.current,codeCardSizesRef.current,d.id,{
+                    boxesByPath:readCodeCardWorldBoxes(codeCardsLayerRef.current)
+                });
+                redrawGraphLinksAndNodes();
+                if(updateHullsRef.current)updateHullsRef.current();
+            }
         }));
         node.on('click',function(e,d){
             e.stopPropagation();
@@ -11259,8 +11651,10 @@ function App(){
             selectFile(file.path);
             return;
         }
-        var startX=e.clientX,startY=e.clientY,originX=node.x,originY=node.y,moved=false;
+        var startX=e.clientX,startY=e.clientY,originX=node.x,originY=node.y,moved=false,lastX=node.x,lastY=node.y;
         node.fx=node.x;node.fy=node.y;
+        codeCardStackRef.current=raiseCodeCardStack(codeCardStackRef.current,file.path);
+        applyCodeCardStackOrder(codeCardsLayerRef.current,codeCardStackRef.current);
         function writePlacement(){
             var size=codeCardSizesRef.current[file.path]||codeCardSize(file,currentCodeCardPrefs());
             var prev=codeCardPlacementRef.current[file.path]||{};
@@ -11280,12 +11674,21 @@ function App(){
                 moved=true;
                 codeCardUserPinnedRef.current.add(file.path);
             }
-            node.x=node.fx=originX+delta.x;
-            node.y=node.fy=originY+delta.y;
+            var nextX=originX+delta.x,nextY=originY+delta.y;
+            var dx=nextX-lastX,dy=nextY-lastY;
+            node.x=node.fx=nextX;
+            node.y=node.fy=nextY;
+            lastX=nextX;lastY=nextY;
+            var siblings=translateCodeViewSiblings((simRef.current&&simRef.current.nodes())||[],node,dx,dy,codeCardPathsRef.current);
             writePlacement();
-            syncCodeCards();
-            redrawGraphLinksAndNodes();
-            if(updateHullsRef.current)updateHullsRef.current();
+            if(codeViewDragRefresh('move')){
+                syncCodeCards();
+                redrawGraphLinksAndNodes();
+                if(updateHullsRef.current)updateHullsRef.current();
+            }else{
+                applyCodeCardDragFrame(codeCardsLayerRef.current,file.path,node,codeCardSizesRef.current[file.path]);
+                redrawMovedGraphNodes([node].concat(siblings));
+            }
         }
         function onUp(){
             window.removeEventListener('pointermove',onMove);
@@ -11298,6 +11701,11 @@ function App(){
             }
             if(moved){
                 codeCardUserPinnedRef.current.add(file.path);
+                if(codeViewDragRefresh('release')){
+                    settleCodeViewAfterDrag((simRef.current&&simRef.current.nodes())||[],codeCardPathsRef.current,codeCardSizesRef.current,file.path,{
+                        boxesByPath:readCodeCardWorldBoxes(codeCardsLayerRef.current)
+                    });
+                }
                 node.x=node.fx;node.y=node.fy;
                 writePlacement();
                 syncCodeCards();
@@ -11346,9 +11754,21 @@ function App(){
                 codeCardUserPinnedRef.current.add(file.path);
             }
             writeSize(clampCodeCardResize(delta.width,delta.height,currentCodeCardPrefs()));
-            syncCodeCards();
-            redrawGraphLinksAndNodes();
-            if(updateHullsRef.current)updateHullsRef.current();
+            if(codeViewDragRefresh('move')){
+                syncCodeCards();
+                redrawGraphLinksAndNodes();
+                if(updateHullsRef.current)updateHullsRef.current();
+            }else{
+                applyCodeCardDragFrame(codeCardsLayerRef.current,file.path,node,codeCardSizesRef.current[file.path]);
+                var live=codeCardSizesRef.current[file.path];
+                if(live){
+                    var card=findCodeCardElement(codeCardsLayerRef.current,file.path);
+                    if(card){
+                        card.style.width=live.width+'px';
+                        card.style.height=live.height+'px';
+                    }
+                }
+            }
         }
         function onUp(){
             window.removeEventListener('pointermove',onMove);
@@ -11356,6 +11776,11 @@ function App(){
             window.removeEventListener('pointercancel',onUp);
             if(moved){
                 codeCardUserPinnedRef.current.add(file.path);
+                if(codeViewDragRefresh('release')){
+                    settleCodeViewAfterDrag((simRef.current&&simRef.current.nodes())||[],codeCardPathsRef.current,codeCardSizesRef.current,file.path,{
+                        boxesByPath:readCodeCardWorldBoxes(codeCardsLayerRef.current)
+                    });
+                }
                 syncCodeCards();
                 redrawGraphLinksAndNodes();
                 if(updateHullsRef.current)updateHullsRef.current();
