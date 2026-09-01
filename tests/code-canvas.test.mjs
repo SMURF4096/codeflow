@@ -1998,9 +1998,13 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /function forceLinkVisual\(/);
   assert.match(htmlSource, /function prefersReducedMotion\(/);
   assert.match(htmlSource, /path\.force-link-particle\.is-on/);
-  assert.match(htmlSource, /@media\(prefers-reduced-motion:reduce\)/);
+  assert.match(htmlSource, /@media\(prefers-reduced-motion:reduce\)\{[\s\S]*?display:none/);
+  assert.match(htmlSource, /function forceLinkParticlesNeedTickUpdate\(/);
+  assert.match(htmlSource, /function redrawActiveForceLinkParticles\(/);
+  assert.match(htmlSource, /linkParticlesRef\.current\.filter\('\.is-on'\)/);
   assert.match(htmlSource, /linkParticlesRef\.current=particles/);
   assert.match(htmlSource, /else applyForceLinkVisuals\(\)/);
+  assert.doesNotMatch(htmlSource, /if\(linkParticlesRef\.current\)linkParticlesRef\.current\.attr\('d',graphLinkPath\)/);
   assert.match(htmlSource, /'aria-label':'Line thickness'/);
   assert.match(htmlSource, /config-label'\},'Thickness'/);
   assert.match(htmlSource, /persistLineThickness\(e\.target\.value\)/);
@@ -2279,6 +2283,9 @@ test('selected Code-view links animate; inactive stay quiet; reduced-motion is s
   assert.equal(reduced.stroke, 'var(--orange)');
   assert.equal(reduced.particle, false, 'reduced-motion keeps a static highlight');
   assert.equal(reduced.particleDash, '');
+  assert.equal(context.forceLinkParticlesNeedTickUpdate(null, { reducedMotion: false }), false);
+  assert.equal(context.forceLinkParticlesNeedTickUpdate('src/app.js', { reducedMotion: true }), false);
+  assert.equal(context.forceLinkParticlesNeedTickUpdate('src/app.js', { reducedMotion: false }), true);
 
   const thin = context.forceLinkVisual(outLink, 'src/app.js', { thickness: 1, reducedMotion: false });
   const thick = context.forceLinkVisual(outLink, 'src/app.js', { thickness: 6, reducedMotion: false });
