@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, mkdir, rm, symlink } from 'node:fs/promises';
+import { mkdtemp, writeFile, mkdir, rm, symlink, readFile } from 'node:fs/promises';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -17,11 +17,30 @@ import {
   createCodeflowServer,
   openBrowser,
   safeRequestPath,
-  startFileWatchers
+  startFileWatchers,
+  CLI_FILE_MAX_BYTES,
+  isMissingFsError,
+  bumpWatchRev,
+  currentWatchRev,
+  readOpenedSnapshot
 } from '../cli/codeflow.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, '..');
+
+test('CLI file errors distinguish missing files from read failures', () => {
+  assert.equal(CLI_FILE_MAX_BYTES, 2 * 1024 * 1024);
+  const revs = new Map();
+  assert.equal(bumpWatchRev(revs, 'src/app.js'), 1);
+  assert.equal(bumpWatchRev(revs, 'src/app.js'), 2);
+  assert.equal(currentWatchRev(revs, '/src/app.js'), 2);
+  assert.equal(isMissingFsError({ code: 'ENOENT' }), true);
+  assert.equal(isMissingFsError({ code: 'ENOTDIR' }), true);
+  assert.equal(isMissingFsError({ code: 'EISDIR' }), true);
+  assert.equal(isMissingFsError({ code: 'EACCES' }), false);
+  assert.equal(isMissingFsError({ code: 'EIO' }), false);
+  assert.equal(isMissingFsError(null), false);
+});
 
 test('CLI argument parser accepts a folder and port', () => {
   assert.deepEqual(parseCliArgs(['node', 'codeflow', '.', '--port', '4199']), { port: 4199, target: '.' });
@@ -110,7 +129,20 @@ test('CLI server serves the same UI and folder files', async (t) => {
   assert.ok(files.files.some((f) => f.path === 'src/app.js'));
   const file = await fetch(base + '/__codeflow/file?path=src/app.js');
   assert.equal(file.status, 200);
-  assert.match(await file.text(), /function/);
+  const fileBody = await file.text();
+  assert.match(fileBody, /function/);
+  assert.equal(file.headers.get('content-length'), String(Buffer.byteLength(fileBody)));
+  assert.equal(file.headers.get('x-codeflow-rev'), '0');
+  // An atomic save after open would bump the live rev; the header must
+  // still reflect the pre-open sample so retainCliWatchPathsAfterAnalysis
+  // treats that SSE rev as newer than the snapshot.
+  const cliSource = await readFile(join(repoRoot, 'cli/codeflow.mjs'), 'utf8');
+  assert.match(cliSource, /function pipeSafeFile[\s\S]*?resolveSnapshotRev\(options\)[\s\S]*?fs\.open\(filePath, 'r'\)[\s\S]*?readOpenedSnapshot\(fh, st\.size\)/);
+  assert.doesNotMatch(cliSource, /function pipeSafeFile[\s\S]*?fs\.open\(filePath, 'r'\)[\s\S]*?resolveSnapshotRev\(/);
+  assert.match(cliSource, /isMissingFsError\(err\)[\s\S]*?sendFileError\(res, 404/);
+  assert.match(cliSource, /sendFileError\(res, 500, 'Read failed'\)/);
+  assert.match(cliSource, /X-Codeflow-Rev/);
+  assert.doesNotMatch(cliSource, /createReadStream/);
   const denied = await fetch(base + '/__codeflow/file?path=../package.json');
   assert.equal(denied.status, 404);
   const asDir = await fetch(base + '/__codeflow/file?path=src');
@@ -183,6 +215,84 @@ test('CLI file endpoint does not follow escaping symlinks', async (t) => {
   const ok = await fetch('http://127.0.0.1:' + port + '/__codeflow/file?path=src/app.js');
   assert.equal(ok.status, 200);
   assert.match(await ok.text(), /export const ok/);
+});
+
+test('CLI file endpoint rejects oversized snapshots before buffering', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'codeflow-oversize-'));
+  t.after(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+  await writeFile(join(root, 'huge.js'), Buffer.alloc(CLI_FILE_MAX_BYTES + 1, 97));
+  const { server, close } = createCodeflowServer({ uiRoot: repoRoot, watchRoot: root });
+  t.after(() => close());
+  await new Promise((resolveListen, reject) => {
+    server.listen(0, '127.0.0.1', resolveListen);
+    server.once('error', reject);
+  });
+  const { port } = server.address();
+  const huge = await fetch('http://127.0.0.1:' + port + '/__codeflow/file?path=huge.js');
+  assert.equal(huge.status, 413);
+  assert.notEqual(huge.headers.get('content-length'), String(CLI_FILE_MAX_BYTES + 1));
+  const ui = await fetch('http://127.0.0.1:' + port + '/');
+  assert.equal(ui.status, 200);
+});
+
+test('CLI watch events tell the UI which file changed', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'codeflow-events-'));
+  t.after(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+  await mkdir(join(root, 'src'));
+  await writeFile(join(root, 'src', 'app.js'), 'export const ok = 1;\n');
+  const { server, close } = createCodeflowServer({ uiRoot: repoRoot, watchRoot: root });
+  t.after(() => close());
+  await new Promise((resolveListen, reject) => {
+    server.listen(0, '127.0.0.1', resolveListen);
+    server.once('error', reject);
+  });
+  const { port } = server.address();
+  const events = await new Promise((resolve, reject) => {
+    const req = http.request({
+      hostname: '127.0.0.1',
+      port,
+      path: '/__codeflow/events',
+      headers: { Accept: 'text/event-stream' }
+    }, (res) => {
+      let buf = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => {
+        buf += chunk;
+        if (buf.includes('data: ')) {
+          res.destroy();
+          resolve(buf);
+        }
+      });
+      res.on('error', reject);
+    });
+    req.on('error', reject);
+    req.end();
+    setTimeout(async () => {
+      await writeFile(join(root, 'src', 'app.js'), 'export const ok = 2;\n');
+    }, 40);
+    setTimeout(() => reject(new Error('watch event timed out')), 3000);
+  });
+  assert.match(events, /"type":"change"/);
+  assert.match(events, /"path":"src\/app.js"/);
+  assert.match(events, /"rev":/);
+});
+
+test('CLI snapshot reads loop until the opened range is filled', async () => {
+  const chunks = [4, 4, 2];
+  const fh = {
+    async read(buf, offset, length) {
+      const n = Math.min(chunks.shift() || 0, length);
+      buf.fill(65, offset, offset + n);
+      return { bytesRead: n };
+    }
+  };
+  const body = await readOpenedSnapshot(fh, 10);
+  assert.equal(body.length, 10);
+  assert.equal(body.toString(), 'A'.repeat(10));
 });
 
 test('safeRequestPath rejects malformed escapes', () => {

@@ -1047,6 +1047,20 @@ test('Code cards can be resized from the right or bottom edge', () => {
   const grown = context.applyCodeCardUserSize(base, { width: 620, height: 280 });
   assert.equal(grown.width, 620);
   assert.equal(grown.height, 280);
+  const file = { path: 'src/app.js', content: 'a\nb\nc\n' };
+  const rows = context.codeCardDiffRows(file, 'a\nb\nc\n' + 'x\n'.repeat(20));
+  const expand = context.codeCardSizeForDiff(file, { expand: true, wrap: true }, rows);
+  const short = context.applyCodeCardUserSize(expand, { width: expand.width, height: 180 });
+  assert.ok(expand.height > 180);
+  assert.equal(short.height, 180);
+  assert.equal(short.clipped, true);
+  assert.equal(expand.clipped, false);
+  const resizeCard = { style: {}, classList: { names: new Set(), add(name) { resizeCard.classList.names.add(name); }, remove(name) { resizeCard.classList.names.delete(name); } } };
+  assert.equal(context.applyCodeCardResizeFrame(resizeCard, short), true);
+  assert.equal(resizeCard.style.height, '180px');
+  assert.ok(resizeCard.classList.names.has('clipped'));
+  context.applyCodeCardResizeFrame(resizeCard, expand);
+  assert.equal(resizeCard.classList.names.has('clipped'), false);
   const clamped = context.clampCodeCardResize(80, 40, {});
   assert.equal(clamped.width, context.CODE_CARD_MIN_WIDTH);
   assert.equal(clamped.height, context.CODE_CARD_MIN_HEIGHT);
@@ -1520,6 +1534,199 @@ test('empty code cards always render from an array of lines', () => {
   assert.deepEqual(J(context.asCodeLines(['const x = 1;'])), ['const x = 1;']);
 });
 
+test('CLI watch paths stay unique and only flush analyzed files', () => {
+  assert.equal(context.normalizeCliWatchPath('\\src\\app.js'), 'src/app.js');
+  assert.deepEqual(J(context.noteCliWatchPath([], 'src/app.js')), ['src/app.js']);
+  assert.deepEqual(J(context.noteCliWatchPath(['src/app.js'], 'src/app.js')), ['src/app.js']);
+  assert.deepEqual(J(context.noteCliWatchPath(['src/app.js'], 'src/math.js')), ['src/app.js', 'src/math.js']);
+  const files = [{ path: 'src/app.js', content: 'export const n = 1;\n' }, { path: 'src/math.js', content: '' }];
+  assert.deepEqual(J(context.cliWatchDiffPaths(files, ['src/app.js', 'README.md', 'src/app.js'])), ['src/app.js']);
+  const skipped = [{ path: 'src/app.js', content: '', analysisSkipped: 'oversized' }, { path: 'src/math.js', content: 'export const n = 1;\n' }];
+  assert.deepEqual(J(context.cliWatchDiffPaths(skipped, ['src/app.js', 'src/math.js'])), ['src/math.js']);
+  assert.equal(context.fileHasAnalyzedSourceForDiff(skipped[0]), false);
+  assert.equal(context.fileHasAnalyzedSourceForDiff({ path: 'src/gone.js', content: '', analysisSkipped: 'fetch-failed' }), false);
+  assert.equal(context.fileHasAnalyzedSourceForDiff(files[0]), true);
+  const live = context.mergeCliLiveContents(null, [{ path: 'src/app.js', content: 'export const n = 1;\n' }]);
+  assert.equal(live['src/app.js'], 'export const n = 1;\n');
+  const cleared = context.mergeCliLiveContents(live, [{ path: 'src/app.js', content: null }]);
+  assert.equal(Object.prototype.hasOwnProperty.call(cleared, 'src/app.js'), false);
+});
+
+test('line diffs mark added and removed rows for Code cards', () => {
+  const before = 'import { add } from "./math.js";\n\nexport function boot() {\n  return add(1, 2);\n}\n';
+  const after = 'import { add, double } from "./math.js";\n\nexport function boot() {\n  return double(add(1, 2));\n}\n';
+  const rows = J(context.diffCodeLines(before, after));
+  const added = rows.filter((row) => row.type === 'add').map((row) => row.text);
+  const removed = rows.filter((row) => row.type === 'del').map((row) => row.text);
+  assert.ok(removed.some((line) => line.includes('from "./math.js"')));
+  assert.ok(added.some((line) => line.includes('double')));
+  assert.ok(removed.some((line) => line.includes('return add(1, 2);')));
+  assert.ok(added.some((line) => line.includes('return double(add(1, 2));')));
+  assert.ok(rows.some((row) => row.type === 'same' && row.text.includes('export function boot()')));
+  const file = { path: 'src/app.js', content: before };
+  const painted = J(context.codeCardDiffRows(file, after));
+  assert.ok(context.codeCardHasDiff(painted));
+  assert.equal(context.codeCardDiffClass({ type: 'add' }), ' diff-add');
+  assert.equal(context.codeCardDiffClass({ type: 'del' }), ' diff-del');
+  assert.equal(context.codeCardDiffClass({ type: 'same' }), '');
+  assert.equal(context.codeCardDiffLineNo({ type: 'add', newLine: 4 }), 4);
+  assert.equal(context.codeCardDiffLineNo({ type: 'del', oldLine: 2 }), 2);
+  assert.equal(context.codeCardDiffRows(file, before), null);
+  assert.equal(context.codeCardDiffRows({ path: 'src/app.js' }, after), null);
+  assert.equal(context.codeCardDiffRows(file, null), null);
+  const identical = J(context.diffCodeLines(before, before));
+  assert.ok(identical.every((row) => row.type === 'same'));
+  assert.equal(context.codeCardHasDiff(identical), false);
+  const deleted = J(context.codeCardDiffRows({ path: 'src/app.js', content: 'keep\nme' }, ''));
+  assert.ok(deleted.every((row) => row.type === 'del'));
+  assert.deepEqual(deleted.map((row) => row.text), ['keep', 'me']);
+});
+
+test('diff-aware Code cards clip or grow so the hunk stays reachable', () => {
+  const file = { path: 'src/app.js', content: 'a\nb\nc\n' };
+  const rows = context.codeCardDiffRows(file, 'a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\nl\n');
+  assert.ok(context.codeCardHasDiff(rows));
+  const scroll = context.codeCardSizeForDiff(file, { expand: false, wrap: true }, rows);
+  const base = context.codeCardSize(file, { expand: false, wrap: true });
+  assert.equal(scroll.height, base.height);
+  assert.equal(scroll.clipped, true);
+  const expand = context.codeCardSizeForDiff(file, { expand: true, wrap: true }, rows);
+  const painted = context.codeCardSize(context.fileForCodeCardDiff(file, rows), { expand: true, wrap: true });
+  assert.equal(expand.height, painted.height);
+  assert.ok(expand.height > base.height);
+  const card = {
+    path: file.path,
+    classes: new Set(),
+    getAttribute(name) { return name === 'data-code-card' ? file.path : null; },
+    style: { width: base.width + 'px', height: base.height + 'px' },
+    classList: {
+      add(name) { card.classes.add(name); },
+      remove(name) { card.classes.delete(name); }
+    },
+    querySelector() { return { style: {} }; }
+  };
+  context.applyCodeCardLayout(
+    { style: {}, querySelectorAll() { return [card]; } },
+    { [file.path]: { x: 40, y: 40 } },
+    { k: 1, x: 0, y: 0 },
+    { [file.path]: expand }
+  );
+  assert.equal(card.style.height, expand.height + 'px');
+  assert.ok(Number.parseFloat(card.style.height) > base.height);
+});
+
+test('symbol pills follow the painted diff row, not the stale analysis line', () => {
+  const before = 'function top(){}\n\nfunction bottom(){}\n';
+  const after = 'function extra(){}\nfunction top(){}\n\nfunction bottom(){}\n';
+  const rows = context.diffCodeLines(before, after);
+  assert.equal(context.codeCardDiffLineIndex(rows, 1), 2);
+  assert.equal(context.codeCardDiffLineIndex(null, 3), 3);
+});
+
+test('color blocks follow the painted diff row, not the stale analysis line', () => {
+  const file = {
+    name: 'app.js',
+    path: 'src/app.js',
+    content: 'function top(){}\n\nfunction bottom(){}\n',
+    functions: [
+      { name: 'top', line: 1, isExported: false },
+      { name: 'bottom', line: 3, isExported: false }
+    ]
+  };
+  const rows = context.diffCodeLines(file.content, 'function extra(){}\nfunction top(){}\n\nfunction bottom(){}\n');
+  const base = context.codeColorBlockSections(file, [], {});
+  const painted = context.codeColorBlockSections(file, [], {}, rows);
+  const topBase = base.find((s) => s.name === 'top');
+  const topPainted = painted.find((s) => s.name === 'top');
+  assert.equal(topBase.startLine, 1);
+  assert.equal(topPainted.startLine, 2);
+  assert.ok(topPainted.top > topBase.top);
+});
+
+test('cleared CLI watch generations do not reuse an in-flight token', () => {
+  assert.equal(context.bumpCliWatchDiffEpoch(1), 2);
+  const gens = { 'src/app.js': 1 };
+  assert.equal(context.cliWatchDiffRequestIsCurrent(1, 1, gens, 'src/app.js', 1), true);
+  assert.equal(context.cliWatchDiffRequestIsCurrent(2, 1, gens, 'src/app.js', 1), false);
+  assert.equal(context.cliWatchDiffRequestIsCurrent(2, 2, { 'src/app.js': 1 }, 'src/app.js', 1), true);
+  assert.equal(context.cliWatchDiffRequestIsCurrent(2, 2, { 'src/app.js': 2 }, 'src/app.js', 1), false);
+});
+
+test('CLI analysis keeps watch paths received while files were being read', () => {
+  const read = { 'src/app.js': true, 'src/math.js': true };
+  assert.deepEqual(J(context.retainCliWatchPathsAfterAnalysis(['src/app.js', '/src/math.js', 'src/app.js', ''], read)), ['src/app.js', 'src/math.js']);
+  assert.deepEqual(J(context.retainCliWatchPathsAfterAnalysis(['src/app.js', 'src/unread.js'], { 'src/app.js': true })), ['src/app.js']);
+  assert.deepEqual(J(context.retainCliWatchPathsAfterAnalysis(['src/unread.js'], { 'src/app.js': true })), []);
+  assert.deepEqual(J(context.retainCliWatchPathsAfterAnalysis(null)), []);
+  assert.deepEqual(J(context.noteCliWatchDuringEvent([], 'src/app.js', 2)), [{ path: 'src/app.js', rev: 2 }]);
+  assert.deepEqual(J(context.noteCliWatchDuringEvent([{ path: 'src/app.js', rev: 1 }], 'src/app.js', 3)), [{ path: 'src/app.js', rev: 3 }]);
+  assert.equal(context.cliWatchEventIsAfterSnapshot(2, 1), true);
+  assert.equal(context.cliWatchEventIsAfterSnapshot(1, 1), false);
+  assert.equal(context.cliWatchEventIsAfterSnapshot(null, 1), true);
+  assert.deepEqual(J(context.retainCliWatchPathsAfterAnalysis([{ path: 'src/app.js', rev: 1 }], read, { 'src/app.js': 1 })), []);
+  assert.deepEqual(J(context.retainCliWatchPathsAfterAnalysis([{ path: 'src/app.js', rev: 2 }], read, { 'src/app.js': 1 })), ['src/app.js']);
+  assert.equal(context.cliWatchSnapRevFromResponse({ headers: { get(name) { return name === 'x-codeflow-rev' ? '4' : null; } } }), 4);
+  assert.deepEqual(J(context.noteCliWatchPathIfRead([], 'src/app.js', read)), ['src/app.js']);
+  assert.deepEqual(J(context.noteCliWatchPathIfRead([], 'src/later.js', read)), []);
+  assert.deepEqual(J(context.noteCliWatchPathIfRead(['src/app.js'], 'src/later.js', { 'src/app.js': true })), ['src/app.js']);
+  assert.deepEqual(J(context.noteCliWatchPathIfRead([], 'src/app.js', {})), []);
+  assert.deepEqual(J(context.noteCliWatchPathIfRead([], 'src/app.js', null)), []);
+  assert.deepEqual(J(context.forgetCliWatchPath(['src/app.js', 'src/math.js'], 'src/app.js')), ['src/math.js']);
+  assert.deepEqual(J(context.forgetCliWatchPath(['src/app.js'], 'src/math.js')), ['src/app.js']);
+  assert.deepEqual(J(context.forgetCliWatchPath(['src/app.js'], '')), ['src/app.js']);
+  const analyzed = [{ path: 'src/app.js', content: 'export const n = 1;\n' }, { path: 'src/math.js', content: 'export const n = 2;\n' }];
+  assert.equal(context.analyzedFileForCliWatchPath(analyzed, '/src/app.js').content, 'export const n = 1;\n');
+  assert.equal(context.cliWatchLiveMatchesBaseline(analyzed[0], 'export const n = 1;\n'), true);
+  assert.equal(context.cliWatchLiveMatchesBaseline(analyzed[0], 'export const n = 2;\n'), false);
+  assert.equal(context.cliWatchLiveMatchesBaseline(analyzed[0], ''), false);
+  assert.equal(context.cliWatchLiveMatchesBaseline({ path: 'src/app.js', content: 'export const n = 1;\n', analysisSkipped: 'fetch-failed' }, 'export const n = 1;\n'), false);
+  const emptyFile = { path: 'src/empty.js', content: '' };
+  assert.equal(context.cliWatchLiveClearsDirty(emptyFile, '', 'ok'), true);
+  assert.equal(context.cliWatchLiveClearsDirty(emptyFile, '', 'missing'), false);
+  assert.equal(context.cliWatchLiveClearsDirty(analyzed[0], 'export const n = 1;\n', 'ok'), true);
+  assert.equal(context.cliWatchLiveClearsDirty(analyzed[0], 'export const n = 1;\n', 'missing'), false);
+  assert.deepEqual(J(context.cliWatchLiveFromResponse(200, 'ok\n', true)), { kind: 'ok', content: 'ok\n' });
+  assert.deepEqual(J(context.cliWatchLiveFromResponse(404, 'nope', false)), { kind: 'missing', content: '' });
+  assert.deepEqual(J(context.cliWatchLiveFromResponse(500, 'err', false)), { kind: 'error' });
+  assert.equal(context.shouldApplyCliWatchLive({ kind: 'ok', content: '' }), true);
+  assert.equal(context.shouldApplyCliWatchLive({ kind: 'missing', content: '' }), true);
+  assert.equal(context.shouldApplyCliWatchLive({ kind: 'error' }), false);
+});
+
+test('CLI live watch reads reject oversized files before painting', () => {
+  const limit = context.CLI_WATCH_MAX_BYTES;
+  assert.equal(limit, 2 * 1024 * 1024);
+  assert.equal(context.cliWatchLiveRejectsOversized(limit), false);
+  assert.equal(context.cliWatchLiveRejectsOversized(limit + 1), true);
+  assert.equal(context.cliWatchLiveRejectsOversized(String(limit + 1)), true);
+  assert.equal(context.cliWatchLiveRejectsOversized(NaN), false);
+  assert.deepEqual(J(context.cliWatchLiveFromResponse(200, 'ok', true, limit + 1)), { kind: 'error' });
+  assert.deepEqual(J(context.cliWatchLiveFromResponse(200, 'x'.repeat(limit + 1), true)), { kind: 'error' });
+  assert.equal(context.shouldApplyCliWatchLive(context.cliWatchLiveFromResponse(200, 'ok', true, limit + 1)), false);
+});
+
+test('CLI watch recovery skips already flushed and in-flight paths', () => {
+  const dirty = ['src/app.js', 'src/math.js', 'src/new.js'];
+  const live = { 'src/app.js': 'export const n = 1;\n' };
+  assert.deepEqual(J(context.pendingCliWatchDiffPaths(dirty, live, ['src/math.js'])), ['src/new.js']);
+  assert.deepEqual(J(context.pendingCliWatchDiffPaths(dirty, live, [])), ['src/math.js', 'src/new.js']);
+  assert.deepEqual(J(context.pendingCliWatchDiffPaths(dirty, live, dirty)), []);
+  assert.deepEqual(J(context.pendingCliWatchDiffPaths([], live, [])), []);
+  const started = J(context.startedCliWatchDiffPaths(['src/math.js'], { 'src/app.js': 1, 'src/util.js': 2 }));
+  assert.deepEqual(started, ['src/math.js', 'src/app.js', 'src/util.js']);
+  assert.deepEqual(J(context.pendingCliWatchDiffPaths(dirty, {}, started)), ['src/new.js']);
+});
+
+test('CLI watch diffs only apply to the matching CLI analysis', () => {
+  const status = { ok: true, root: '/tmp/alpha', name: 'alpha' };
+  assert.equal(context.cliWatchAppliesToAnalysis('cli', status, { sourceType: 'cli', sourceKey: '/tmp/alpha' }), true);
+  assert.equal(context.cliWatchAppliesToAnalysis('cli', status, { sourceType: 'cli', sourceKey: '/tmp/beta' }), false);
+  assert.equal(context.cliWatchAppliesToAnalysis('folder', status, { sourceType: 'folder' }), false);
+  assert.equal(context.cliWatchAppliesToAnalysis('zip', status, { sourceType: 'zip' }), false);
+  assert.equal(context.cliWatchAppliesToAnalysis(null, status, { sourceType: 'github' }), false);
+  assert.equal(context.cliWatchAppliesToAnalysis('cli', { ok: false }, { sourceType: 'cli', sourceKey: '/tmp/alpha' }), false);
+});
+
 test('HTML attribute sanitizer encodes quotes before they reach data-sym', () => {
   assert.equal(context.escapeHtmlAttr('say "hi"'), 'say &quot;hi&quot;');
   assert.match(context.escapeHtmlAttr('a"onclick="alert(1)'), /&quot;/);
@@ -1656,6 +1863,44 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /allowReplace=!!\(replace\|\|reveal\)/);
   assert.match(htmlSource, /filterAnalyzableLocalFiles\(/);
   assert.match(htmlSource, /asCodeLines\(highlightSyntax/);
+  assert.match(htmlSource, /codeCardDiffRows\(file,cliLiveByPath/);
+  assert.match(htmlSource, /asCodeLines\(highlightSyntax\(diffSource,file\.name\)\)/);
+  assert.match(htmlSource, /className:'file-preview-line'\+codeCardDiffClass\(row\)/);
+  assert.match(htmlSource, /diff-add/);
+  assert.match(htmlSource, /diff-del/);
+  assert.match(htmlSource, /enqueueCliWatchDiffRef/);
+  assert.match(htmlSource, /flushCliWatchDiffs/);
+  assert.match(htmlSource, /startedCliWatchDiffPaths\(cliDiffPendingRef\.current,cliDiffGenRef\.current\)/);
+  assert.match(htmlSource, /pendingCliWatchDiffPaths\(cliDirty,cliLiveByPath,started\)/);
+  assert.match(htmlSource, /flushCliWatchDiffs\(missing\)/);
+  assert.match(htmlSource, /cliWatchAppliesToAnalysis\(localSourceKind,cliStatus,currentAnalysisSource\(\)\)/);
+  assert.match(htmlSource, /function applyCachedAnalysis\(record\)\{[\s\S]*?setCliDirty\(\[\]\);[\s\S]*?clearCliLiveDiffs\(\);/);
+  assert.match(htmlSource, /cliWatchDuringRef\.current=noteCliWatchDuringEvent\(cliWatchDuringRef\.current,next,rev\)/);
+  assert.match(htmlSource, /var keep=retainCliWatchPathsAfterAnalysis\(cliWatchDuringRef\.current,cliWatchReadRef\.current,cliWatchSnapRevRef\.current\)/);
+  assert.match(htmlSource, /enqueueCliWatchDiffRef\.current\(payload\.path,payload\.rev\)/);
+  assert.match(htmlSource, /cliWatchSnapRevFromResponse\(fileRes\)/);
+  assert.match(htmlSource, /if\(!fileRes\.ok\)\{[\s\S]*?analyzed\.push\(makeFetchFailedAnalysisFile\(f\)\);[\s\S]*?continue;/);
+  assert.match(htmlSource, /cliWatchLiveRejectsOversized\(length\)/);
+  assert.match(htmlSource, /cliWatchLiveFromResponse\(res\.status,text,true,length\)/);
+  assert.match(htmlSource, /cliWatchReadRef\.current\[pathKey\]=true;[\s\S]*?cliWatchSnapRevFromResponse\(fileRes\);[\s\S]*?var content=await fileRes\.text\(\);/);
+  assert.match(htmlSource, /readCliWatchLiveSource\(path\)/);
+  assert.match(htmlSource, /if\(!shouldApplyCliWatchLive\(result\)\)return/);
+  assert.match(htmlSource, /if\(cliWatchLiveClearsDirty\(file,live,result\.kind\)\)/);
+  assert.match(htmlSource, /setCliDirty\(function\(prev\)\{return forgetCliWatchPath\(prev,path\);\}/);
+  assert.match(htmlSource, /setCliDirty\(keep\)/);
+  assert.doesNotMatch(htmlSource, /setCachedFromId\(null\);\s*setCliDirty\(\[\]\);\s*clearCliLiveDiffs\(\);/);
+  assert.match(htmlSource, /codeCardSizeForDiff\(file,prefs,rows\)/);
+  assert.match(htmlSource, /codeCardSizeForDiff\(file,cardPrefs,diffRows\)/);
+  assert.match(htmlSource, /applyCodeCardUserSize\(codeCardSizeForDiff\(file,currentCodeCardPrefs\(\),codeCardDiffRows\(file,cliLiveByPath\[file\.path\]\)\),nextSize\)/);
+  assert.match(htmlSource, /applyCodeCardResizeFrame\(findCodeCardElement\(codeCardsLayerRef\.current,file\.path\),codeCardSizesRef\.current\[file\.path\]\)/);
+  assert.match(htmlSource, /\[codeViewFiles,graphConfig\.vizType,graphConfig\.linkDist,codeViewExpand,codeViewWrap,cliLiveByPath\]/);
+  assert.match(htmlSource, /codeCardSymbolPills\(file,data\?data\.connections:\[\],cardPrefs,diffRows\)/);
+  assert.match(htmlSource, /codeColorBlockSections\(file,data\?data\.connections:\[\],cardPrefs,diffRows\)/);
+  assert.match(htmlSource, /cliDiffEpochRef\.current=bumpCliWatchDiffEpoch\(cliDiffEpochRef\.current\)/);
+  assert.match(htmlSource, /cliWatchDiffRequestIsCurrent\(cliDiffEpochRef\.current,epoch,cliDiffGenRef\.current,path,gen\)/);
+  assert.match(htmlSource, /var live=result\.kind==='missing'\?'':result\.content/);
+  assert.match(htmlSource, /EventSource\('\/__codeflow\/events'\)/);
+  assert.match(htmlSource, /CLI_WATCH_DIFF_MS/);
   assert.match(htmlSource, /zipArchiveCacheMeta/);
   assert.match(htmlSource, /compactAnalysisForCache/);
   assert.match(htmlSource, /fileHasLoadedSource/);
@@ -1736,12 +1981,13 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /readCodeCardWorldBoxes\(codeCardsLayerRef\.current\)/);
   assert.match(htmlSource, /codeFolderHullBounds\(cardNodes,leftover/);
   assert.match(htmlSource, /if\(updateHullsRef\.current\)updateHullsRef\.current\(\)/);
-  assert.match(htmlSource, /codeViewExpand,codeViewWrap/);
+  assert.match(htmlSource, /codeViewExpand,codeViewWrap,cliLiveByPath/);
   assert.match(htmlSource, /cardSize\.expand\?' expand'/);
   assert.match(htmlSource, /cardSize\.wrap\?' wrap'/);
   assert.match(htmlSource, /\.code-card\.wrap \.file-preview-text/);
   assert.match(htmlSource, /white-space:pre-wrap/);
-  assert.match(htmlSource, /\.code-card\.expand:not\(\.wrap\) \.code-card-body\{overflow-x:auto/);
+  assert.match(htmlSource, /\.code-card\.expand:not\(\.wrap\):not\(\.clipped\) \.code-card-body\{overflow-x:auto/);
+  assert.match(htmlSource, /\.code-card\.expand\.wrap:not\(\.clipped\) \.code-card-body\{overflow:hidden/);
   assert.doesNotMatch(htmlSource, /sidebar-title'\},'Color By'/);
   assert.doesNotMatch(htmlSource, /sidebar-title'\},'Explorer'/);
   assert.match(htmlSource, /function persistLineThickness\(/);

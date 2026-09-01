@@ -2,7 +2,7 @@
 // Thin local entry point. Serves the same index.html UI and watches a folder.
 // The public app stays one HTML file in the browser.
 
-import { createReadStream, existsSync, promises as fs, watch } from 'node:fs';
+import { existsSync, promises as fs, watch } from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -174,34 +174,92 @@ function sendJson(res, status, body) {
   res.end(payload);
 }
 
+export const CLI_FILE_MAX_BYTES = 2 * 1024 * 1024;
+
+export function isMissingFsError(err) {
+  const code = err && err.code;
+  return code === 'ENOENT' || code === 'ENOTDIR' || code === 'EISDIR';
+}
+
+export function normalizeWatchRel(rel) {
+  return String(rel || '').replace(/\\/g, '/').replace(/^\/+/, '');
+}
+
+export function bumpWatchRev(revs, rel) {
+  const key = normalizeWatchRel(rel);
+  if (!key) return 0;
+  const next = (Number(revs.get(key)) || 0) + 1;
+  revs.set(key, next);
+  return next;
+}
+
+export function currentWatchRev(revs, rel) {
+  const key = normalizeWatchRel(rel);
+  if (!key) return 0;
+  return Number(revs.get(key)) || 0;
+}
+
+export async function readOpenedSnapshot(fh, size) {
+  const n = Number(size) || 0;
+  const buf = Buffer.alloc(n);
+  let offset = 0;
+  while (offset < n) {
+    const { bytesRead } = await fh.read(buf, offset, n - offset, offset);
+    if (!bytesRead) break;
+    offset += bytesRead;
+  }
+  return offset === n ? buf : buf.subarray(0, offset);
+}
+
 function sendPublicError(res, status, message) {
   sendJson(res, status, { error: message });
 }
 
-function pipeSafeFile(res, filePath, contentType) {
-  return fs.stat(filePath).then((st) => {
-    if (!st.isFile()) {
-      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end('Not found');
+function sendFileError(res, status, message) {
+  if (res.headersSent) return;
+  res.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8' });
+  res.end(message);
+}
+
+function resolveSnapshotRev(options) {
+  options = options || {};
+  return typeof options.snapshotRev === 'function' ? options.snapshotRev() : options.snapshotRev;
+}
+
+function pipeSafeFile(res, filePath, contentType, maxBytes, options) {
+  options = options || {};
+  // Sample before open so an atomic save cannot bump the path rev onto
+  // bytes later read from the already-bound (stale) inode.
+  const snapshotRev = resolveSnapshotRev(options);
+  return fs.open(filePath, 'r').then(async (fh) => {
+    try {
+      const st = await fh.stat();
+      if (!st.isFile()) {
+        sendFileError(res, 404, 'Not found');
+        return;
+      }
+      if (Number.isFinite(maxBytes) && st.size > maxBytes) {
+        sendFileError(res, 413, 'File too large');
+        return;
+      }
+      const body = await readOpenedSnapshot(fh, st.size);
+      const headers = {
+        'Content-Type': contentType,
+        'Content-Length': String(body.length),
+        'Cache-Control': 'no-store'
+      };
+      if (Number.isFinite(Number(snapshotRev))) headers['X-Codeflow-Rev'] = String(Number(snapshotRev));
+      res.writeHead(200, headers);
+      res.end(body);
+    } finally {
+      await fh.close().catch(() => {});
+    }
+  }).catch((err) => {
+    if (isMissingFsError(err)) {
+      sendFileError(res, 404, 'Not found');
       return;
     }
-    res.writeHead(200, {
-      'Content-Type': contentType,
-      'Cache-Control': 'no-store'
-    });
-    const stream = createReadStream(filePath);
-    stream.on('error', () => {
-      if (res.writableEnded) return;
-      if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
-      }
-      res.end('Read failed');
-    });
-    stream.pipe(res);
-  }).catch(() => {
-    if (res.headersSent) return;
-    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('Not found');
+    sendFileError(res, 500, 'Read failed');
   });
 }
 
@@ -335,9 +393,12 @@ export function createCodeflowServer(options) {
   const watchRoot = options.watchRoot;
   const name = path.basename(watchRoot);
   const clients = new Set();
+  const watchRevs = new Map();
 
   const watchSession = startFileWatchers(watchRoot, (rel) => {
-    const payload = `data: ${JSON.stringify({ type: 'change', path: rel })}\n\n`;
+    const pathKey = normalizeWatchRel(rel);
+    const rev = bumpWatchRev(watchRevs, pathKey);
+    const payload = `data: ${JSON.stringify({ type: 'change', path: pathKey, rev })}\n\n`;
     for (const client of clients) client.write(payload);
   });
 
@@ -375,7 +436,9 @@ export function createCodeflowServer(options) {
           res.end('Not found');
           return;
         }
-        await pipeSafeFile(res, safe, 'text/plain; charset=utf-8');
+        await pipeSafeFile(res, safe, 'text/plain; charset=utf-8', CLI_FILE_MAX_BYTES, {
+          snapshotRev: () => currentWatchRev(watchRevs, url.searchParams.get('path') || '')
+        });
         return;
       }
       if (url.pathname === '/__codeflow/events') {
