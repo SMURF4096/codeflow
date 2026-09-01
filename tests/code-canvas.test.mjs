@@ -1994,6 +1994,30 @@ test('index.html ships a working Code view, not a stub', () => {
   assert.match(htmlSource, /function persistUiPrefs\(/);
   assert.match(htmlSource, /function resolveUiPrefsStorage\(/);
   assert.match(htmlSource, /function applyLinkThickness\(/);
+  assert.match(htmlSource, /function applyForceLinkVisuals\(/);
+  assert.match(htmlSource, /function forceLinkVisual\(/);
+  assert.match(htmlSource, /function prefersReducedMotion\(/);
+  assert.match(htmlSource, /function subscribePrefersReducedMotion\(/);
+  assert.match(htmlSource, /function vizUsesForceLinkParticles\(/);
+  assert.match(htmlSource, /path\.force-link-particle\.is-on/);
+  assert.match(htmlSource, /@media\(prefers-reduced-motion:reduce\)\{[\s\S]*?display:none/);
+  assert.match(htmlSource, /function forceLinkParticlesNeedTickUpdate\(/);
+  assert.match(htmlSource, /function redrawActiveForceLinkParticles\(/);
+  assert.match(htmlSource, /linkParticlesRef\.current\.filter\('\.is-on'\)/);
+  assert.match(htmlSource, /linkParticlesRef\.current=particles/);
+  assert.match(htmlSource, /else applyForceLinkVisuals\(\)/);
+  assert.match(htmlSource, /applyForceLinkVisualsRef/);
+  assert.match(htmlSource, /subscribePrefersReducedMotion\(function/);
+  assert.match(htmlSource, /var particleLayer=keepReadable\?container\.append\('g'\)\.attr\('class','force-link-particles'/);
+  assert.match(htmlSource, /if\(!vizUsesForceLinkParticles\(graphConfig\.vizType\)\)return;/);
+  assert.match(htmlSource, /if\(src===path\|\|tgt===path\)return'var\(--acc\)'/);
+  assert.doesNotMatch(htmlSource, /if\(linkParticlesRef\.current\)linkParticlesRef\.current\.attr\('d',graphLinkPath\)/);
+  const highlightFn = htmlSource.slice(
+    htmlSource.indexOf('function updateGraphHighlight('),
+    htmlSource.indexOf('function getNodeColor(', htmlSource.indexOf('function updateGraphHighlight('))
+  );
+  assert.equal(highlightFn.includes('applyForceLinkVisuals()'), false);
+  assert.equal(highlightFn.includes("return'var(--acc)'"), true);
   assert.match(htmlSource, /'aria-label':'Line thickness'/);
   assert.match(htmlSource, /config-label'\},'Thickness'/);
   assert.match(htmlSource, /persistLineThickness\(e\.target\.value\)/);
@@ -2231,6 +2255,128 @@ test('line thickness defaults match current graph edges and stay in range', () =
   const idle = context.graph3dLinkWidth({ count: 1, source: 'a.js', target: 'b.js' }, null, 1);
   const selected = context.graph3dLinkWidth({ count: 1, source: 'a.js', target: 'b.js' }, 'a.js', 1);
   assert.ok(selected > idle);
+});
+
+test('selected Code-view links animate; inactive stay quiet; reduced-motion is static', () => {
+  const outLink = { count: 1, source: 'src/app.js', target: 'src/math.js' };
+  const inLink = { count: 2, source: { id: 'src/boot.js' }, target: { id: 'src/app.js' } };
+  const other = { count: 1, source: 'src/a.js', target: 'src/b.js' };
+  const opts = { theme: 'dark', thickness: 2, reducedMotion: false };
+
+  const outgoing = context.forceLinkVisual(outLink, 'src/app.js', opts);
+  const incoming = context.forceLinkVisual(inLink, 'src/app.js', opts);
+  const quiet = context.forceLinkVisual(other, 'src/app.js', opts);
+  const baseline = context.forceLinkVisual(outLink, null, opts);
+  const reduced = context.forceLinkVisual(outLink, 'src/app.js', Object.assign({}, opts, { reducedMotion: true }));
+
+  assert.equal(context.forceLinkRole(outLink, 'src/app.js'), 'out');
+  assert.equal(context.forceLinkRole(inLink, 'src/app.js'), 'in');
+  assert.equal(context.forceLinkRole(other, 'src/app.js'), '');
+  assert.equal(outgoing.active, true);
+  assert.equal(outgoing.role, 'out');
+  assert.equal(outgoing.stroke, 'var(--orange)');
+  assert.equal(outgoing.particle, true);
+  assert.equal(outgoing.particleDash, '8 20');
+  assert.equal(outgoing.particleStroke, '#fff');
+  assert.notEqual(outgoing.particleStroke, outgoing.stroke);
+  assert.equal(incoming.active, true);
+  assert.equal(incoming.role, 'in');
+  assert.equal(incoming.stroke, 'var(--purple)');
+  assert.equal(incoming.particle, true);
+  assert.equal(incoming.particleStroke, '#fff');
+  assert.equal(quiet.active, false);
+  assert.equal(quiet.role, 'quiet');
+  assert.equal(quiet.particle, false);
+  assert.ok(quiet.opacity < baseline.opacity);
+  assert.equal(baseline.active, false);
+  assert.equal(baseline.role, 'idle');
+  assert.equal(baseline.particle, false);
+  assert.equal(baseline.opacity, 0.4);
+  assert.equal(reduced.active, true);
+  assert.equal(reduced.stroke, 'var(--orange)');
+  assert.equal(reduced.particle, false, 'reduced-motion keeps a static highlight');
+  assert.equal(reduced.particleDash, '');
+  assert.equal(context.forceLinkParticlesNeedTickUpdate(null, { reducedMotion: false }), false);
+  assert.equal(context.forceLinkParticlesNeedTickUpdate('src/app.js', { reducedMotion: true }), false);
+  assert.equal(context.forceLinkParticlesNeedTickUpdate('src/app.js', { reducedMotion: false }), true);
+
+  const thin = context.forceLinkVisual(outLink, 'src/app.js', { thickness: 1, reducedMotion: false });
+  const thick = context.forceLinkVisual(outLink, 'src/app.js', { thickness: 6, reducedMotion: false });
+  assert.equal(thick.width, thin.width * 6);
+  assert.equal(context.prefersReducedMotion({ matches: true }), true);
+  assert.equal(context.prefersReducedMotion({ matches: false }), false);
+  assert.equal(context.prefersReducedMotion(function (query) {
+    return { matches: query.indexOf('reduce') >= 0 };
+  }), true);
+});
+
+test('reduced-motion changes reapply Code particles; Graph keeps static accent', () => {
+  assert.equal(context.vizUsesForceLinkParticles('code'), true);
+  assert.equal(context.vizUsesForceLinkParticles('graph'), false);
+  assert.equal(context.vizUsesForceLinkParticles('graph3d'), false);
+
+  const outLink = { count: 1, source: 'src/app.js', target: 'src/math.js' };
+  const codeOpts = { theme: 'dark', thickness: 2, reducedMotion: false, vizType: 'code' };
+  const graphOpts = { theme: 'dark', thickness: 2, reducedMotion: false, vizType: 'graph' };
+  const codeOn = context.forceLinkVisual(outLink, 'src/app.js', codeOpts);
+  const graphOn = context.forceLinkVisual(outLink, 'src/app.js', graphOpts);
+  const codeReduced = context.forceLinkVisual(outLink, 'src/app.js', Object.assign({}, codeOpts, { reducedMotion: true }));
+  assert.equal(codeOn.particle, true);
+  assert.equal(graphOn.particle, false);
+  assert.equal(graphOn.active, true);
+  assert.equal(codeReduced.particle, false);
+  assert.equal(context.forceLinkParticlesNeedTickUpdate('src/app.js', { reducedMotion: false, vizType: 'code' }), true);
+  assert.equal(context.forceLinkParticlesNeedTickUpdate('src/app.js', { reducedMotion: false, vizType: 'graph' }), false);
+  assert.equal(context.forceLinkParticlesNeedTickUpdate('src/app.js', { reducedMotion: true, vizType: 'code' }), false);
+
+  const listeners = [];
+  const mq = {
+    matches: true,
+    addEventListener(type, fn) {
+      if (type === 'change') listeners.push(fn);
+    },
+    removeEventListener(type, fn) {
+      const idx = listeners.indexOf(fn);
+      if (idx >= 0) listeners.splice(idx, 1);
+    }
+  };
+  const seen = [];
+  const unsub = context.subscribePrefersReducedMotion(function (matches) {
+    seen.push(matches);
+  }, function () { return mq; });
+  assert.equal(typeof unsub, 'function');
+  assert.equal(listeners.length, 1);
+  mq.matches = false;
+  listeners.slice().forEach((fn) => fn());
+  assert.deepEqual(seen, [false]);
+  unsub();
+  assert.equal(listeners.length, 0);
+
+  const legacy = {
+    matches: false,
+    addListener(fn) { this._fn = fn; },
+    removeListener(fn) { if (this._fn === fn) this._fn = null; }
+  };
+  let legacyHits = 0;
+  const stopLegacy = context.subscribePrefersReducedMotion(function () { legacyHits += 1; }, function () { return legacy; });
+  legacy.matches = true;
+  legacy._fn();
+  assert.equal(legacyHits, 1);
+  stopLegacy();
+  assert.equal(legacy._fn, null);
+
+  const noop = context.subscribePrefersReducedMotion(function () {}, function () { return null; });
+  assert.equal(typeof noop, 'function');
+  noop();
+
+  assert.match(htmlSource, /applyForceLinkVisualsRef\.current=applyForceLinkVisuals/);
+  assert.match(htmlSource, /subscribePrefersReducedMotion\(function\(\)\{/);
+  assert.match(htmlSource, /if\(applyForceLinkVisualsRef\.current\)applyForceLinkVisualsRef\.current\(\)/);
+  assert.match(htmlSource, /vizType:graphConfig\.vizType/);
+  assert.match(htmlSource, /if\(vizUsesForceLinkParticles\(graphConfig\.vizType\)\)applyForceLinkVisuals\(\)/);
+  assert.match(htmlSource, /var particleLayer=keepReadable\?container\.append\('g'\)\.attr\('class','force-link-particles'/);
+  assert.match(htmlSource, /if\(src===path\|\|tgt===path\)return'var\(--acc\)'/);
+  assert.match(htmlSource, /link\.attr\('stroke',theme==='light'\?'#ccc':'#333'\)\.attr\('stroke-opacity',0\.4\)/);
 });
 
 test('UI prefs persist line thickness in localStorage', () => {
