@@ -2259,14 +2259,14 @@ test('selected Code-view links animate; inactive stay quiet; reduced-motion is s
   assert.equal(outgoing.role, 'out');
   assert.equal(outgoing.stroke, 'var(--orange)');
   assert.equal(outgoing.particle, true);
-  assert.equal(outgoing.particleDash, '6 16');
-  assert.equal(outgoing.particleStroke, '#ffe1c2');
+  assert.equal(outgoing.particleDash, '8 20');
+  assert.equal(outgoing.particleStroke, '#fff');
   assert.notEqual(outgoing.particleStroke, outgoing.stroke);
   assert.equal(incoming.active, true);
   assert.equal(incoming.role, 'in');
   assert.equal(incoming.stroke, 'var(--purple)');
   assert.equal(incoming.particle, true);
-  assert.equal(incoming.particleStroke, '#ece6ff');
+  assert.equal(incoming.particleStroke, '#fff');
   assert.equal(quiet.active, false);
   assert.equal(quiet.role, 'quiet');
   assert.equal(quiet.particle, false);
