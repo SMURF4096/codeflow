@@ -488,6 +488,12 @@ body{font-family:'JetBrains Mono',monospace;background:var(--bg0);color:var(--t0
 .light .syn-punct{color:#383a42}
 .code-canvas{position:relative;width:100%;height:100%;min-width:0;min-height:0;overflow:hidden}
 .code-canvas svg{width:100%;height:100%;display:block}
+@keyframes force-link-particle-flow{to{stroke-dashoffset:-22}}
+path.force-link-particle{fill:none;pointer-events:none;stroke-linecap:round}
+path.force-link-particle.is-on{stroke-dasharray:4 18;animation:force-link-particle-flow .65s linear infinite}
+@media(prefers-reduced-motion:reduce){
+path.force-link-particle.is-on{animation:none;stroke-dasharray:none}
+}
 .code-canvas-cards{position:absolute;inset:0;pointer-events:none;transform-origin:0 0;z-index:4}
 .code-canvas-hud{position:absolute;top:56px;left:12px;z-index:51;display:flex;flex-direction:column;align-items:stretch;gap:6px;width:168px;max-width:calc(100% - 24px);pointer-events:none}
 .code-canvas-hint{font-size:10px;color:var(--t3);background:var(--bg1);border:1px solid var(--border);border-radius:8px;padding:6px 8px;line-height:1.4}
@@ -5766,6 +5772,82 @@ function graph3dLinkWidth(link,selectedPath,thickness){
     return scaleStrokeWidth(baseWidth,thickness);
 }
 
+function forceLinkEndId(end){
+    if(end==null)return '';
+    if(typeof end==='object')return String(end.id||'');
+    return String(end);
+}
+
+function forceLinkRole(link,selectedPath){
+    if(!link||!selectedPath)return '';
+    if(forceLinkEndId(link.source)===selectedPath)return 'out';
+    if(forceLinkEndId(link.target)===selectedPath)return 'in';
+    return '';
+}
+
+function prefersReducedMotion(query){
+    try{
+        if(query&&typeof query.matches==='boolean')return !!query.matches;
+        var matchMedia=typeof query==='function'?query:(typeof window!=='undefined'?window.matchMedia:null);
+        if(typeof matchMedia!=='function')return false;
+        var owner=typeof window!=='undefined'?window:null;
+        var res=matchMedia.call(owner,'(prefers-reduced-motion: reduce)');
+        return !!(res&&res.matches);
+    }catch(e){
+        return false;
+    }
+}
+
+function forceLinkIdleStroke(theme){
+    return theme==='light'?'#ccc':'#333';
+}
+
+function forceLinkVisual(link,selectedPath,options){
+    options=options||{};
+    var theme=options.theme==='light'?'light':'dark';
+    var reduced=!!options.reducedMotion;
+    var width=graphLinkStrokeWidth(link&&link.count,options.thickness);
+    var role=forceLinkRole(link,selectedPath);
+    var idle=forceLinkIdleStroke(theme);
+    if(selectedPath&&(role==='out'||role==='in')){
+        return {
+            role:role,
+            active:true,
+            stroke:role==='out'?'var(--orange)':'var(--purple)',
+            opacity:0.9,
+            width:width,
+            particle:!reduced,
+            particleWidth:Math.max(2,width+0.8),
+            particleDash:reduced?'':'4 18',
+            particleDuration:reduced?0:0.65
+        };
+    }
+    if(selectedPath){
+        return {
+            role:'quiet',
+            active:false,
+            stroke:idle,
+            opacity:0.08,
+            width:width,
+            particle:false,
+            particleWidth:width,
+            particleDash:'',
+            particleDuration:0
+        };
+    }
+    return {
+        role:'idle',
+        active:false,
+        stroke:idle,
+        opacity:0.4,
+        width:width,
+        particle:false,
+        particleWidth:width,
+        particleDash:'',
+        particleDuration:0
+    };
+}
+
 function escapeRegExp(value){
     return String(value||'').replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
 }
@@ -8915,6 +8997,7 @@ function App(){
     var simRef=useRef(null);
     var nodesRef=useRef(null);
     var linksRef=useRef(null);
+    var linkParticlesRef=useRef(null);
     var selectFileRef=useRef(null);
     var codeCardsLayerRef=useRef(null);
     var codeCardPathsRef=useRef(new Set());
@@ -10309,7 +10392,9 @@ function App(){
                 setOwnerLoading(false);
                 setOwnership([]);
             }
+            selectedPathRef.current=path;
             if(graphConfig.vizType!=='code')updateGraphHighlight(path,blast);
+            else applyForceLinkVisuals();
         }
     },[data,repoInfo,localSourceKind,isMobile,graphConfig.vizType]);
     selectFileRef.current=selectFile;
@@ -10345,9 +10430,7 @@ function App(){
                 var fill=n.id===path?'#ff5f5f':affectedSet.has(n.id)?'#ff9f43':getNodeColor(n);
                 return d3.select(this).classed('nb')?graphColorBlockFill(fill):fill;
             });
-        linksRef.current.transition().duration(200)
-            .attr('stroke-opacity',function(l){var src=l.source.id||l.source;var tgt=l.target.id||l.target;if(src===path||tgt===path)return 0.8;return path?0.05:0.4;})
-            .attr('stroke',function(l){var src=l.source.id||l.source;var tgt=l.target.id||l.target;if(src===path||tgt===path)return'var(--acc)';return theme==='light'?'#ccc':'#333';});
+        applyForceLinkVisuals();
     }
 
     function getNodeColor(d){
@@ -10659,6 +10742,35 @@ function App(){
     function redrawGraphLinksAndNodes(){
         if(nodesRef.current)nodesRef.current.attr('transform',function(d){return'translate('+d.x+','+d.y+')';});
         if(linksRef.current)linksRef.current.attr('d',graphLinkPath);
+        if(linkParticlesRef.current)linkParticlesRef.current.attr('d',graphLinkPath);
+    }
+    function applyForceLinkVisuals(){
+        var selectedPath=selectedPathRef.current||null;
+        var opts={theme:theme,thickness:lineThicknessRef.current,reducedMotion:prefersReducedMotion()};
+        if(linksRef.current){
+            linksRef.current.each(function(d){
+                var v=forceLinkVisual(d,selectedPath,opts);
+                d3.select(this)
+                    .attr('stroke',v.stroke)
+                    .attr('stroke-opacity',v.opacity)
+                    .attr('stroke-width',v.width)
+                    .classed('force-link-active',v.active)
+                    .classed('force-link-quiet',v.role==='quiet');
+            });
+        }
+        if(linkParticlesRef.current){
+            linkParticlesRef.current.each(function(d){
+                var v=forceLinkVisual(d,selectedPath,opts);
+                d3.select(this)
+                    .attr('d',graphLinkPath(d))
+                    .attr('stroke',v.stroke)
+                    .attr('stroke-width',v.particleWidth)
+                    .attr('stroke-opacity',v.particle?0.95:0)
+                    .attr('stroke-dasharray',v.particle?v.particleDash:null)
+                    .classed('is-on',!!v.particle)
+                    .style('display',v.particle?null:'none');
+            });
+        }
     }
     function persistLineThickness(value){
         var next=persistUiPrefs({lineThickness:value}).lineThickness;
@@ -10669,10 +10781,8 @@ function App(){
         setCodeViewRootGate(next);
     }
     function applyLinkThickness(){
+        applyForceLinkVisuals();
         var thickness=lineThicknessRef.current;
-        if(linksRef.current){
-            linksRef.current.attr('stroke-width',function(d){return graphLinkStrokeWidth(d.count,thickness);});
-        }
         var g3=graph3dInstanceRef.current;
         if(g3&&typeof g3.linkWidth==='function'){
             g3.linkWidth(function(link){return graph3dLinkWidth(link,selectedPathRef.current,thickness);});
@@ -11008,6 +11118,7 @@ function App(){
         defs.append('marker').attr('id','arr').attr('viewBox','0 -5 10 10').attr('refX',14).attr('markerWidth',4).attr('markerHeight',4).attr('orient','auto').append('path').attr('d','M0,-4L10,0L0,4').attr('fill',theme==='light'?'#aaa':'#444');
         var hullLayer=container.append('g').attr('data-code-bg','1').attr('pointer-events','none');
         var linkLayer=container.append('g');
+        var particleLayer=container.append('g').attr('class','force-link-particles').attr('pointer-events','none');
         var nodeLayer=container.append('g');
         var sim=d3.forceSimulation(nodes);
         if(graphConfig.viewMode==='force'){
@@ -11073,6 +11184,9 @@ function App(){
         simRef.current=sim;
         var link=linkLayer.selectAll('path').data(links).join('path').attr('fill','none').attr('stroke',theme==='light'?'#ccc':'#333').attr('stroke-width',function(d){return graphLinkStrokeWidth(d.count,lineThicknessRef.current);}).attr('stroke-opacity',0.4).attr('marker-end','url(#arr)');
         linksRef.current=link;
+        var particles=particleLayer.selectAll('path').data(links).join('path').attr('fill','none').attr('class','force-link-particle').attr('stroke-linecap','round');
+        linkParticlesRef.current=particles;
+        applyForceLinkVisuals();
         var node=nodeLayer.selectAll('g').data(nodes).join('g').style('cursor','pointer');
         nodesRef.current=node;
         var codeNodeDragPrev=Object.create(null);
@@ -11130,8 +11244,9 @@ function App(){
             setSelected(null);
             setBlastRadius(null);
             setActiveSymbol(null);
+            selectedPathRef.current=null;
+            applyForceLinkVisuals();
             if(keepReadable)return;
-            link.attr('stroke',theme==='light'?'#ccc':'#333').attr('stroke-opacity',0.4);
             node.selectAll('.nc').attr('opacity',1).attr('fill',getC);
             node.selectAll('.nb').attr('opacity',1).attr('fill',function(d){return graphColorBlockFill(getC(d));});
         });
@@ -11190,6 +11305,7 @@ function App(){
         var tickCount=0;
         sim.on('tick',function(){
             link.attr('d',graphLinkPath);
+            if(linkParticlesRef.current)linkParticlesRef.current.attr('d',graphLinkPath);
             node.attr('transform',function(d){return'translate('+d.x+','+d.y+')';});
             if(keepReadable){
                 nodes.forEach(function(n){graphNodesByIdRef.current[n.id]=n;});
@@ -11219,7 +11335,7 @@ function App(){
         updateHullsRef.current=updateHulls;
         if(drawMinimapRef.current)drawMinimapRef.current();
         }catch(e){console.error('Force graph error:',e);svg.selectAll('*').remove();svg.append('text').attr('x',20).attr('y',30).attr('fill','var(--t3)').text('Graph rendering error: '+e.message);}
-        return function(){if(simRef.current)simRef.current.stop();updateHullsRef.current=null;};
+        return function(){if(simRef.current)simRef.current.stop();updateHullsRef.current=null;linkParticlesRef.current=null;};
     },[graphRebuildKey]);
 
     useLayoutEffect(function(){
@@ -13492,7 +13608,7 @@ function App(){
                     ),
                     React.createElement('div',{className:'panel-content'},
                         rightTab==='details'&&(selected?React.createElement(React.Fragment,null,
-                            React.createElement('button',{className:'top-btn',style:{width:'100%',marginBottom:12},onClick:function(){setSelected(null);setBlastRadius(null);if(nodesRef.current){nodesRef.current.selectAll('.nc,.nb').transition().duration(200).attr('opacity',1).attr('fill',function(n){return d3.select(this).classed('nb')?graphColorBlockFill(getNodeColor(n)):getNodeColor(n);});}if(linksRef.current){linksRef.current.transition().duration(200).attr('stroke-opacity',0.4).attr('stroke',theme==='light'?'#ccc':'#333');}}},'← Back to Issues'),
+                            React.createElement('button',{className:'top-btn',style:{width:'100%',marginBottom:12},onClick:function(){setSelected(null);setBlastRadius(null);selectedPathRef.current=null;if(nodesRef.current){nodesRef.current.selectAll('.nc,.nb').transition().duration(200).attr('opacity',1).attr('fill',function(n){return d3.select(this).classed('nb')?graphColorBlockFill(getNodeColor(n)):getNodeColor(n);});}applyForceLinkVisuals();}},'← Back to Issues'),
                             React.createElement('div',{className:'panel-header',style:{margin:'0 -12px 12px',padding:12}},
                                 React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}},
                                     React.createElement('div',null,
