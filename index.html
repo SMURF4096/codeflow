@@ -5798,6 +5798,27 @@ function prefersReducedMotion(query){
     }
 }
 
+function subscribePrefersReducedMotion(onChange,matchMediaFn){
+    if(typeof onChange!=='function')return function(){};
+    try{
+        var matchMedia=typeof matchMediaFn==='function'?matchMediaFn:(typeof window!=='undefined'?window.matchMedia:null);
+        if(typeof matchMedia!=='function')return function(){};
+        var owner=typeof window!=='undefined'?window:null;
+        var mq=matchMedia.call(owner,'(prefers-reduced-motion: reduce)');
+        if(!mq)return function(){};
+        var handler=function(){onChange(!!mq.matches);};
+        if(typeof mq.addEventListener==='function'){
+            mq.addEventListener('change',handler);
+            return function(){mq.removeEventListener('change',handler);};
+        }
+        if(typeof mq.addListener==='function'){
+            mq.addListener(handler);
+            return function(){mq.removeListener(handler);};
+        }
+    }catch(e){}
+    return function(){};
+}
+
 function forceLinkIdleStroke(theme){
     return theme==='light'?'#ccc':'#333';
 }
@@ -5806,6 +5827,7 @@ function forceLinkVisual(link,selectedPath,options){
     options=options||{};
     var theme=options.theme==='light'?'light':'dark';
     var reduced=!!options.reducedMotion;
+    var allowParticles=options.particles!==false&&(options.vizType==null||vizUsesForceLinkParticles(options.vizType))&&!reduced;
     var width=graphLinkStrokeWidth(link&&link.count,options.thickness);
     var role=forceLinkRole(link,selectedPath);
     var idle=forceLinkIdleStroke(theme);
@@ -5816,11 +5838,11 @@ function forceLinkVisual(link,selectedPath,options){
             stroke:role==='out'?'var(--orange)':'var(--purple)',
             opacity:0.9,
             width:width,
-            particle:!reduced,
+            particle:allowParticles,
             particleStroke:'#fff',
             particleWidth:Math.max(4,width+2.4),
-            particleDash:reduced?'':'8 20',
-            particleDuration:reduced?0:0.7
+            particleDash:allowParticles?'8 20':'',
+            particleDuration:allowParticles?0.7:0
         };
     }
     if(selectedPath){
@@ -5854,7 +5876,9 @@ function forceLinkVisual(link,selectedPath,options){
 function forceLinkParticlesNeedTickUpdate(selectedPath,options){
     if(!selectedPath)return false;
     options=options||{};
-    return !options.reducedMotion;
+    if(options.reducedMotion)return false;
+    if(options.vizType!=null&&!vizUsesForceLinkParticles(options.vizType))return false;
+    return true;
 }
 
 function escapeRegExp(value){
@@ -6602,6 +6626,10 @@ function vizHasZoomColorBlocks(vizType){
 
 function vizHasCanvasMinimap(vizType){
     return vizType==='graph'||vizType==='code';
+}
+
+function vizUsesForceLinkParticles(vizType){
+    return vizType==='code';
 }
 
 function collectVisibleCodeFiles(selectedPath,data,folderFilter,limit){
@@ -9007,6 +9035,7 @@ function App(){
     var nodesRef=useRef(null);
     var linksRef=useRef(null);
     var linkParticlesRef=useRef(null);
+    var applyForceLinkVisualsRef=useRef(null);
     var selectFileRef=useRef(null);
     var codeCardsLayerRef=useRef(null);
     var codeCardPathsRef=useRef(new Set());
@@ -10439,7 +10468,9 @@ function App(){
                 var fill=n.id===path?'#ff5f5f':affectedSet.has(n.id)?'#ff9f43':getNodeColor(n);
                 return d3.select(this).classed('nb')?graphColorBlockFill(fill):fill;
             });
-        applyForceLinkVisuals();
+        linksRef.current.transition().duration(200)
+            .attr('stroke-opacity',function(l){var src=l.source.id||l.source;var tgt=l.target.id||l.target;if(src===path||tgt===path)return 0.8;return path?0.05:0.4;})
+            .attr('stroke',function(l){var src=l.source.id||l.source;var tgt=l.target.id||l.target;if(src===path||tgt===path)return'var(--acc)';return theme==='light'?'#ccc':'#333';});
     }
 
     function getNodeColor(d){
@@ -10750,7 +10781,7 @@ function App(){
     }
     function redrawActiveForceLinkParticles(){
         if(!linkParticlesRef.current)return;
-        if(!forceLinkParticlesNeedTickUpdate(selectedPathRef.current, {reducedMotion:prefersReducedMotion()}))return;
+        if(!forceLinkParticlesNeedTickUpdate(selectedPathRef.current,{reducedMotion:prefersReducedMotion(),vizType:graphConfig.vizType}))return;
         linkParticlesRef.current.filter('.is-on').attr('d',graphLinkPath);
     }
     function redrawGraphLinksAndNodes(){
@@ -10759,8 +10790,9 @@ function App(){
         redrawActiveForceLinkParticles();
     }
     function applyForceLinkVisuals(){
+        if(!vizUsesForceLinkParticles(graphConfig.vizType))return;
         var selectedPath=selectedPathRef.current||null;
-        var opts={theme:theme,thickness:lineThicknessRef.current,reducedMotion:prefersReducedMotion()};
+        var opts={theme:theme,thickness:lineThicknessRef.current,reducedMotion:prefersReducedMotion(),vizType:graphConfig.vizType};
         if(linksRef.current){
             linksRef.current.each(function(d){
                 var v=forceLinkVisual(d,selectedPath,opts);
@@ -10786,6 +10818,7 @@ function App(){
             });
         }
     }
+    applyForceLinkVisualsRef.current=applyForceLinkVisuals;
     function persistLineThickness(value){
         var next=persistUiPrefs({lineThickness:value}).lineThickness;
         setLineThickness(next);
@@ -10795,7 +10828,8 @@ function App(){
         setCodeViewRootGate(next);
     }
     function applyLinkThickness(){
-        applyForceLinkVisuals();
+        if(vizUsesForceLinkParticles(graphConfig.vizType))applyForceLinkVisuals();
+        else if(linksRef.current)linksRef.current.attr('stroke-width',function(d){return graphLinkStrokeWidth(d.count,lineThicknessRef.current);});
         var thickness=lineThicknessRef.current;
         var g3=graph3dInstanceRef.current;
         if(g3&&typeof g3.linkWidth==='function'){
@@ -11132,7 +11166,7 @@ function App(){
         defs.append('marker').attr('id','arr').attr('viewBox','0 -5 10 10').attr('refX',14).attr('markerWidth',4).attr('markerHeight',4).attr('orient','auto').append('path').attr('d','M0,-4L10,0L0,4').attr('fill',theme==='light'?'#aaa':'#444');
         var hullLayer=container.append('g').attr('data-code-bg','1').attr('pointer-events','none');
         var linkLayer=container.append('g');
-        var particleLayer=container.append('g').attr('class','force-link-particles').attr('pointer-events','none');
+        var particleLayer=keepReadable?container.append('g').attr('class','force-link-particles').attr('pointer-events','none'):null;
         var nodeLayer=container.append('g');
         var sim=d3.forceSimulation(nodes);
         if(graphConfig.viewMode==='force'){
@@ -11198,9 +11232,13 @@ function App(){
         simRef.current=sim;
         var link=linkLayer.selectAll('path').data(links).join('path').attr('fill','none').attr('stroke',theme==='light'?'#ccc':'#333').attr('stroke-width',function(d){return graphLinkStrokeWidth(d.count,lineThicknessRef.current);}).attr('stroke-opacity',0.4).attr('marker-end','url(#arr)');
         linksRef.current=link;
-        var particles=particleLayer.selectAll('path').data(links).join('path').attr('fill','none').attr('class','force-link-particle').attr('stroke-linecap','round');
-        linkParticlesRef.current=particles;
-        applyForceLinkVisuals();
+        if(keepReadable&&particleLayer){
+            var particles=particleLayer.selectAll('path').data(links).join('path').attr('fill','none').attr('class','force-link-particle').attr('stroke-linecap','round');
+            linkParticlesRef.current=particles;
+            applyForceLinkVisuals();
+        }else{
+            linkParticlesRef.current=null;
+        }
         var node=nodeLayer.selectAll('g').data(nodes).join('g').style('cursor','pointer');
         nodesRef.current=node;
         var codeNodeDragPrev=Object.create(null);
@@ -11259,8 +11297,11 @@ function App(){
             setBlastRadius(null);
             setActiveSymbol(null);
             selectedPathRef.current=null;
-            applyForceLinkVisuals();
-            if(keepReadable)return;
+            if(keepReadable){
+                applyForceLinkVisuals();
+                return;
+            }
+            link.attr('stroke',theme==='light'?'#ccc':'#333').attr('stroke-opacity',0.4);
             node.selectAll('.nc').attr('opacity',1).attr('fill',getC);
             node.selectAll('.nb').attr('opacity',1).attr('fill',function(d){return graphColorBlockFill(getC(d));});
         });
@@ -11367,6 +11408,11 @@ function App(){
         if(drawMinimapRef.current)drawMinimapRef.current();
     },[codeViewFiles,graphConfig.vizType,graphConfig.linkDist,codeViewExpand,codeViewWrap,cliLiveByPath]);
 
+    useEffect(function(){
+        return subscribePrefersReducedMotion(function(){
+            if(applyForceLinkVisualsRef.current)applyForceLinkVisualsRef.current();
+        });
+    },[]);
     useEffect(function(){
         applyLinkThickness();
     },[lineThickness,selected&&selected.path]);
@@ -13622,7 +13668,7 @@ function App(){
                     ),
                     React.createElement('div',{className:'panel-content'},
                         rightTab==='details'&&(selected?React.createElement(React.Fragment,null,
-                            React.createElement('button',{className:'top-btn',style:{width:'100%',marginBottom:12},onClick:function(){setSelected(null);setBlastRadius(null);selectedPathRef.current=null;if(nodesRef.current){nodesRef.current.selectAll('.nc,.nb').transition().duration(200).attr('opacity',1).attr('fill',function(n){return d3.select(this).classed('nb')?graphColorBlockFill(getNodeColor(n)):getNodeColor(n);});}applyForceLinkVisuals();}},'← Back to Issues'),
+                            React.createElement('button',{className:'top-btn',style:{width:'100%',marginBottom:12},onClick:function(){setSelected(null);setBlastRadius(null);selectedPathRef.current=null;if(nodesRef.current){nodesRef.current.selectAll('.nc,.nb').transition().duration(200).attr('opacity',1).attr('fill',function(n){return d3.select(this).classed('nb')?graphColorBlockFill(getNodeColor(n)):getNodeColor(n);});}if(vizUsesForceLinkParticles(graphConfig.vizType))applyForceLinkVisuals();else if(linksRef.current)linksRef.current.transition().duration(200).attr('stroke-opacity',0.4).attr('stroke',theme==='light'?'#ccc':'#333');}},'← Back to Issues'),
                             React.createElement('div',{className:'panel-header',style:{margin:'0 -12px 12px',padding:12}},
                                 React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}},
                                     React.createElement('div',null,
